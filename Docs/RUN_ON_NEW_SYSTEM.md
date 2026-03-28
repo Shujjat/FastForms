@@ -114,7 +114,7 @@ Frontend URL: `http://127.0.0.1:5173`
 
 ## 8a) Optional: Auto-start with Task Scheduler
 
-To start backend + frontend automatically after reboot (e.g. install under `J:\FastForms\`), use **[WINDOWS_TASK_SCHEDULER.md](WINDOWS_TASK_SCHEDULER.md)** and `Run-FastForms-Scheduled.bat`.
+To start backend + frontend automatically after reboot (e.g. install under `J:\FastForms\`), use **[WINDOWS_TASK_SCHEDULER.md](WINDOWS_TASK_SCHEDULER.md)** (`scripts\start-fastforms-scheduled.bat`). For a normal interactive start, double-click **`Run-FastForms.bat`** at the project root (activates `backend\.venv`, then runs both servers).
 
 ## 9) Optional: Run Tests
 
@@ -183,7 +183,21 @@ Important:
 - Ensure backend is running on `127.0.0.1:8000`.
 - Check browser DevTools network errors.
 
-### E) Port already in use
+### E) `no pq wrapper available` / `libpq library not found` / `Error loading psycopg2 or psycopg` (PostgreSQL on Windows)
+
+The app uses **`psycopg2-binary`** in `requirements.txt` so PostgreSQL works without installing PostgreSQL client DLLs separately. If you still see errors after upgrading:
+
+1. Delete `backend\.venv`, run `Run-FastForms.bat` again, **or** in `backend`: `pip uninstall -y psycopg psycopg-binary` then `pip install -r requirements.txt` (removing **psycopg v3** matters: Django tries it first if installed, and its Windows wheel can fail before it falls back to psycopg2).
+
+2. Ensure PostgreSQL **server** is installed and running, and `backend\.env` has correct `DB_*` values.
+
+### F) `did not find executable at '...\pythoncore-3.xx-64\python.exe'` when running `Run-FastForms.bat`
+
+The folder `backend\.venv` was probably created on **another computer** or with a **Python build that was later removed** (the venv remembers that path). **Fix:** delete `backend\.venv` and run `Run-FastForms.bat` again so it recreates the venv with the Python on this machine. Current scripts also try `python -m venv --upgrade .venv` and remove a broken venv automatically.
+
+**Tip:** Prefer Python 3.12 from [python.org](https://www.python.org/downloads/) with “Add python.exe to PATH” so `Run-FastForms.bat` can find `Python312` under `Program Files` or `%LocalAppData%\Programs\Python\Python312\`.
+
+### G) Port already in use
 - Change backend port:
   - `python manage.py runserver 8001`
 - Update frontend API base in `frontend/.env`:

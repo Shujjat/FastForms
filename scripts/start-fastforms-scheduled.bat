@@ -4,8 +4,8 @@ rem ============================================================================
 rem FastForms — start backend + frontend for Task Scheduler / unattended runs
 rem
 rem Task Scheduler (example):
-rem   Program/script:  J:\FastForms\Run-FastForms-Scheduled.bat
-rem   Start in:          J:\FastForms
+rem   Program/script:  J:\FastForms\scripts\start-fastforms-scheduled.bat
+rem   Start in:        J:\FastForms
 rem   Run whether user is logged on or not: optional (often use a dedicated
 rem   service account with rights to J:\FastForms and logon as batch if needed)
 rem

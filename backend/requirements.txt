@@ -2,7 +2,9 @@ Django>=5.0,<6.0
 djangorestframework>=3.15
 djangorestframework-simplejwt>=5.3
 django-cors-headers>=4.4
-psycopg[binary]>=3.2
+# psycopg2-binary: reliable on Windows without a separate libpq install.
+# (psycopg v3 wheels can fail with "no pq wrapper" / libpq not found on some hosts.)
+psycopg2-binary>=2.9.9
 python-dotenv>=1.0
 celery>=5.4
 redis>=5.0

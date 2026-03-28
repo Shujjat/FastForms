@@ -58,6 +58,10 @@ Frontend runs at `http://localhost:5173`. Set `VITE_API_BASE_URL` if the API is 
 
 From repository root: `docker compose up --build`
 
+### Windows quick start (optional)
+
+From the repository root, **`Run-FastForms.bat`** prepares `backend\.venv` (pip, migrate), starts the API in a window with that **virtual environment activated**, starts the frontend (`npm install` + `npm run dev`), waits for both ports, then opens the browser.
+
 ## Production (summary)
 
 Full checklist and hosting patterns are in [Docs/DEPLOYMENT.md](Docs/DEPLOYMENT.md). To auto-start FastForms on a Windows server folder (for example after reboot), see [Docs/WINDOWS_TASK_SCHEDULER.md](Docs/WINDOWS_TASK_SCHEDULER.md). In short:

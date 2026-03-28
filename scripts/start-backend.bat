@@ -2,19 +2,49 @@
 setlocal
 cd /d "%~dp0\..\backend"
 
-set PYTHON_BIN=
-where python >nul 2>nul
-if %errorlevel%==0 (
-  for /f "delims=" %%i in ('where python') do set PYTHON_BIN=%%i
-) else (
-  if exist "C:\Program Files\Python312\python.exe" set PYTHON_BIN=C:\Program Files\Python312\python.exe
-  if "%PYTHON_BIN%"=="" if exist "C:\Program Files (x86)\Python312\python.exe" set PYTHON_BIN=C:\Program Files (x86)\Python312\python.exe
+rem Prefer real Python 3.12 installs; PATH may point to a removed Windows Store / pythoncore install.
+set "PYTHON_BIN="
+if exist "%LocalAppData%\Programs\Python\Python312\python.exe" set "PYTHON_BIN=%LocalAppData%\Programs\Python\Python312\python.exe"
+if not defined PYTHON_BIN if exist "C:\Program Files\Python312\python.exe" set "PYTHON_BIN=C:\Program Files\Python312\python.exe"
+if not defined PYTHON_BIN if exist "C:\Program Files (x86)\Python312\python.exe" set "PYTHON_BIN=C:\Program Files (x86)\Python312\python.exe"
+if not defined PYTHON_BIN (
+  py -3.12 -c "import sys" >nul 2>&1
+  if %errorlevel%==0 (
+    for /f "delims=" %%i in ('py -3.12 -c "import sys; print(sys.executable)" 2^>nul') do set "PYTHON_BIN=%%i"
+  )
 )
-
-if "%PYTHON_BIN%"=="" (
-  echo Python is not installed or not in PATH (and fallback python312 not found).
+if not defined PYTHON_BIN (
+  where python >nul 2>nul
+  if %errorlevel%==0 (
+    for /f "delims=" %%i in ('where python') do (
+      set "PYTHON_BIN=%%i"
+      goto :py_done
+    )
+  )
+)
+:py_done
+if not defined PYTHON_BIN (
+  echo Python 3.11+ not found. Install Python 3.12 from python.org and add to PATH.
   pause
   exit /b 1
+)
+
+if exist ".venv\Scripts\python.exe" (
+  echo Checking virtual environment...
+  "%PYTHON_BIN%" -m venv --upgrade .venv 2>nul
+  set "VENV_DEAD="
+  ".venv\Scripts\python.exe" -c "import sys" >nul 2>&1
+  if errorlevel 1 (
+    set "VENV_DEAD=1"
+  ) else (
+    ".venv\Scripts\python.exe" -m pip --version >nul 2>&1
+    if errorlevel 1 set "VENV_DEAD=1"
+  )
+)
+if defined VENV_DEAD (
+  echo Removing broken .venv ^(Python was moved or project was copied from another machine^)...
+  rmdir /s /q ".venv" 2>nul
+  set "VENV_DEAD="
 )
 
 if not exist ".venv\Scripts\python.exe" (
@@ -27,12 +57,13 @@ if not exist ".venv\Scripts\python.exe" (
   )
 )
 
-set VENV_PYTHON=.venv\Scripts\python.exe
+set "VENV_PYTHON=.venv\Scripts\python.exe"
+echo Using Python for venv: "%PYTHON_BIN%"
 
 echo Installing/verifying backend requirements inside venv...
 "%VENV_PYTHON%" -m pip install --upgrade pip
 if errorlevel 1 (
-  echo Failed while upgrading pip.
+  echo Failed while upgrading pip. Try deleting the folder backend\.venv and run again.
   pause
   exit /b 1
 )
@@ -42,6 +73,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+"%VENV_PYTHON%" -m pip uninstall -y psycopg psycopg-binary 2>nul
 
 "%VENV_PYTHON%" manage.py migrate
 if errorlevel 1 (

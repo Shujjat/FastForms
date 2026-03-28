@@ -6,8 +6,8 @@ Use this when you run FastForms from a fixed folder on a Windows server (for exa
 
 | File | Purpose |
 |------|---------|
-| `Run-FastForms-Scheduled.bat` | Repository root launcher; point Task Scheduler here. |
-| `scripts/start-fastforms-scheduled.bat` | Starts backend and frontend in **minimized** windows using the same steps as `scripts/start-backend.bat` and `scripts/start-frontend.bat` (venv, `pip install`, `migrate`, `runserver`, `npm install`, `npm run dev`). |
+| `Run-FastForms.bat` | **Interactive** start from repo root: creates/updates `backend\.venv`, runs migrations, then opens backend (with **venv activated**) and frontend, waits for ports, opens the browser. |
+| `scripts/start-fastforms-scheduled.bat` | **Task Scheduler** / unattended: starts minimized windows via `scripts/start-backend.bat` and `scripts/start-frontend.bat` (same venv + npm steps), skips if ports are already in use. |
 
 Logs are appended to:
 
@@ -19,7 +19,7 @@ If **port 8000** (backend) or **5173** (frontend) is already listening, that ser
 
 | Setting | Suggested value |
 |--------|------------------|
-| **Program/script** | `J:\FastForms\Run-FastForms-Scheduled.bat` (adjust drive/path to your install). |
+| **Program/script** | `J:\FastForms\scripts\start-fastforms-scheduled.bat` (adjust drive/path), or run `Run-FastForms.bat` interactively when logged in (no minimization). |
 | **Start in** | `J:\FastForms` |
 | **Trigger** | **At startup** — add a **delay of 1–2 minutes** so PostgreSQL (and Redis, if used) are running first. |
 | **User** | An account that can run Python and Node and read the project folder. |
