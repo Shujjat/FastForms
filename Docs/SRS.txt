@@ -1,0 +1,229 @@
+# Software Requirements Specification (SRS)
+
+## 1. Introduction
+
+### 1.1 Purpose
+This document defines requirements for FastForms, a web-based SaaS platform for building forms, collecting responses, and analyzing submissions.
+
+### 1.2 Scope
+FastForms SHALL allow authorized users to:
+- Create and publish forms.
+- Collect and store responses.
+- Manage and export response data.
+- Share forms with access controls.
+- View analytics dashboards.
+
+### 1.3 Product Vision
+FastForms provides Google Forms-like core workflows with enterprise-friendly access control, reporting, and deployment options.
+
+### 1.4 Definitions
+- Creator: User who creates and manages forms.
+- Respondent: User who submits a form response.
+- Analyst: User who views response analytics and reports.
+- Admin: User who manages platform-level users and moderation.
+- Form: A structured survey containing questions and settings.
+- Response: A single submitted answer set for a form.
+
+## 2. Overall Description
+
+### 2.1 Product Perspective
+FastForms is a multi-tenant web application with:
+- Frontend web client.
+- Backend REST API.
+- Relational database for transactional data.
+- Object storage for uploaded files.
+
+### 2.2 User Classes
+| Role | Primary Capabilities |
+|---|---|
+| Admin | User management, moderation, system-level analytics |
+| Creator | Create/edit/publish forms, share forms, view responses |
+| Analyst | View analytics and export data for permitted forms |
+| Respondent | Fill and submit available forms |
+
+### 2.3 Assumptions
+- Internet connectivity is available.
+- Email delivery provider is configured in deployed environments.
+- File storage backend (S3-compatible or local) is configured.
+
+### 2.4 Out of Scope (MVP)
+- Native mobile apps.
+- Payment processing.
+- AI-generated forms and voice-based form completion.
+- Real-time collaborative co-editing.
+
+## 3. Functional Requirements
+
+### 3.1 Authentication and Accounts (FR-AUTH)
+- FR-AUTH-001: The system SHALL support user registration and login by email/password.
+- FR-AUTH-002: The system SHALL support JWT-based authentication and token refresh.
+- FR-AUTH-003: The system SHALL support password reset via email workflow.
+- FR-AUTH-004: The system SHALL enforce role-based authorization for protected resources.
+
+### 3.2 Form Builder (FR-FORM)
+- FR-FORM-001: A Creator SHALL be able to create, update, duplicate, and archive forms.
+- FR-FORM-002: A Creator SHALL be able to add, remove, and reorder questions.
+- FR-FORM-003: The system SHALL support these question types: short text, paragraph, single choice, multiple choice, dropdown, date, rating, and file upload.
+- FR-FORM-004: A Creator SHALL be able to mark questions as required.
+- FR-FORM-005: A Creator SHALL be able to define per-question validation (e.g., email, numeric range, regex).
+- FR-FORM-006: A Creator SHALL be able to create form sections/page breaks.
+- FR-FORM-007: The system SHALL support form draft and published states.
+
+### 3.3 Sharing and Access (FR-SHARE)
+- FR-SHARE-001: A Creator SHALL be able to generate a shareable public URL.
+- FR-SHARE-002: A Creator SHALL be able to restrict a form to authenticated users.
+- FR-SHARE-003: A Creator SHALL be able to enable one-response-per-user mode.
+- FR-SHARE-004: A Creator SHALL be able to set form open/close dates.
+- FR-SHARE-005: A Creator SHALL be able to share editor/viewer access with internal collaborators.
+
+### 3.4 Response Collection (FR-RESP)
+- FR-RESP-001: A Respondent SHALL be able to submit a published and open form.
+- FR-RESP-002: The system SHALL timestamp each submitted response.
+- FR-RESP-003: The system SHALL enforce required-question validation before submission.
+- FR-RESP-004: The system SHALL prevent duplicate submissions when one-response-per-user is enabled.
+- FR-RESP-005: The system SHALL store file-upload responses in configured storage.
+
+### 3.5 Response Management and Export (FR-MGMT)
+- FR-MGMT-001: Authorized users SHALL be able to view response summary and individual response views.
+- FR-MGMT-002: Authorized users SHALL be able to filter/search responses.
+- FR-MGMT-003: Authorized users SHALL be able to export responses as CSV and JSON.
+- FR-MGMT-004: Admins and form owners SHALL be able to delete responses.
+
+### 3.6 Analytics and Notifications (FR-ANL, FR-NOTIF)
+- FR-ANL-001: The system SHALL provide per-question aggregate statistics for supported question types.
+- FR-ANL-002: The system SHALL provide total response count and submission trend over time.
+- FR-NOTIF-001: The system SHALL support email notification to form owner on new response (configurable).
+- FR-NOTIF-002: The system SHALL support optional submission confirmation email to respondent.
+
+### 3.7 Administration (FR-ADMIN)
+- FR-ADMIN-001: Admin SHALL be able to manage users and roles.
+- FR-ADMIN-002: Admin SHALL be able to moderate forms and disable violating content.
+- FR-ADMIN-003: Admin SHALL be able to view platform usage metrics.
+
+## 4. Role and Permission Matrix
+
+| Action | Admin | Creator | Analyst | Respondent |
+|---|---|---|---|---|
+| Create/edit own forms | Yes | Yes | No | No |
+| Publish/unpublish own forms | Yes | Yes | No | No |
+| View responses (owned/shared) | Yes | Yes | Yes | No |
+| Export responses (owned/shared) | Yes | Yes | Yes | No |
+| Submit responses | Yes | Yes | Yes | Yes |
+| Manage users/roles | Yes | No | No | No |
+| Moderate any form | Yes | No | No | No |
+
+## 5. Non-Functional Requirements
+
+### 5.1 Performance
+- NFR-PERF-001: P95 form submission API latency SHALL be <= 2.0 seconds under expected load.
+- NFR-PERF-002: P95 authenticated read API latency SHALL be <= 1.0 second for paginated endpoints.
+- NFR-PERF-003: Responses list endpoints SHALL be paginated.
+
+### 5.2 Reliability and Availability
+- NFR-REL-001: Monthly service availability target SHALL be 99.9% excluding planned maintenance.
+- NFR-REL-002: Daily automated backups SHALL be maintained.
+- NFR-REL-003: Recovery Point Objective (RPO) SHALL be <= 24 hours.
+- NFR-REL-004: Recovery Time Objective (RTO) SHALL be <= 8 hours.
+
+### 5.3 Security
+- NFR-SEC-001: All production traffic SHALL use HTTPS.
+- NFR-SEC-002: Input validation and output encoding SHALL be enforced at API boundaries.
+- NFR-SEC-003: Uploads SHALL be restricted by file type and size and scanned by configured security controls.
+- NFR-SEC-004: Auth and sensitive actions SHALL be logged to audit trails.
+- NFR-SEC-005: Rate limiting SHALL protect authentication and submission endpoints.
+
+### 5.4 Scalability and Maintainability
+- NFR-SCALE-001: The application SHALL support horizontal scaling of API services.
+- NFR-MAIN-001: The codebase SHALL follow modular service boundaries (auth, forms, responses, analytics, notifications).
+- NFR-MAIN-002: Observability SHALL include structured logs and health checks.
+
+### 5.5 Usability
+- NFR-UX-001: The frontend SHALL support responsive layouts for mobile and desktop browsers.
+- NFR-UX-002: Builder interactions SHALL provide immediate validation feedback for required fields.
+
+## 6. System Architecture (High Level)
+
+### 6.1 Logical Components
+- Frontend SPA (React)
+- Backend API (Django + DRF)
+- Worker queue (Celery + Redis) for async jobs
+- PostgreSQL database
+- Object storage (S3-compatible or local)
+
+### 6.2 Data Flow
+1. User authenticates and receives JWT tokens.
+2. Creator defines form schema and publishes form.
+3. Respondent submits answers to response endpoint.
+4. Backend validates and persists response/answers.
+5. Analytics aggregates data for dashboard and export.
+
+## 7. Data Model (High Level)
+
+### 7.1 Core Entities
+- User(id, email, password_hash, role, created_at)
+- Form(id, owner_id, title, description, status, visibility, settings_json, created_at)
+- Question(id, form_id, order_index, type, text, required, validation_json, options_json)
+- Response(id, form_id, respondent_id nullable, submitted_at, metadata_json)
+- Answer(id, response_id, question_id, value_json)
+
+### 7.2 Data Constraints
+- A Question MUST belong to exactly one Form.
+- A Response MUST belong to exactly one Form.
+- An Answer MUST belong to exactly one Response and one Question.
+- One-response-per-user forms MUST enforce uniqueness on (form_id, respondent_id) when respondent_id is present.
+
+## 8. API Requirements
+
+### 8.1 Authentication
+- POST `/api/auth/register`
+- POST `/api/auth/login`
+- POST `/api/auth/token/refresh`
+- POST `/api/auth/password-reset/request`
+- POST `/api/auth/password-reset/confirm`
+
+### 8.2 Forms and Questions
+- GET `/api/forms`
+- POST `/api/forms`
+- GET `/api/forms/{formId}`
+- PUT `/api/forms/{formId}`
+- DELETE `/api/forms/{formId}`
+- POST `/api/forms/{formId}/publish`
+- POST `/api/forms/{formId}/questions`
+- PUT `/api/forms/{formId}/questions/reorder`
+
+### 8.3 Responses and Analytics
+- POST `/api/forms/{formId}/submit`
+- GET `/api/forms/{formId}/responses`
+- GET `/api/forms/{formId}/responses/{responseId}`
+- GET `/api/forms/{formId}/analytics`
+- GET `/api/forms/{formId}/export?format=csv|json`
+
+## 9. Compliance and Operational Constraints
+- Web-based product only.
+- Personal data handling SHALL follow applicable local/privacy regulations.
+- Default maximum upload size SHALL be configurable (recommended default: 10 MB per file).
+
+## 10. Acceptance Criteria (Testable)
+
+- AC-001 (FR-AUTH): A new user can register, log in, refresh token, and access protected endpoint.
+- AC-002 (FR-FORM): Creator can create a form with at least 5 supported question types and publish it.
+- AC-003 (FR-RESP): Respondent can submit a valid response; required validation prevents invalid submit.
+- AC-004 (FR-SHARE): One-response-per-user setting blocks second submission from same authenticated user.
+- AC-005 (FR-MGMT): Owner can filter responses and export CSV/JSON successfully.
+- AC-006 (FR-ANL): Analytics endpoint returns total responses and per-question aggregates.
+- AC-007 (NFR-SEC): Unauthorized user receives access-denied for protected form management endpoints.
+- AC-008 (NFR-PERF): Submission endpoint meets P95 latency target in performance test environment.
+
+## 11. Release Scope
+
+### 11.1 MVP
+- Authentication and RBAC
+- Form builder core
+- Form sharing and submission
+- Response management and CSV/JSON export
+- Basic analytics dashboard
+
+### 11.2 Post-MVP
+- Real-time co-editing
+- AI-assisted form creation
+- Additional integrations and advanced reporting
