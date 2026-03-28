@@ -1,0 +1,38 @@
+{
+  "id": "restaurant_feedback",
+  "title": "Dining experience",
+  "description": "Food, service, and visit date.",
+  "category": "Hospitality",
+  "tags": ["food", "review"],
+  "thank_you_message": "Thanks for dining with us.",
+  "appearance": {
+    "accent": "#b45309",
+    "accentText": "#ffffff",
+    "pageBg": "#fffbeb",
+    "cardBg": "#ffffff",
+    "radius": "12px"
+  },
+  "questions": [
+    {
+      "text": "Visit date",
+      "question_type": "date",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Food quality",
+      "question_type": "rating",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "What would you suggest?",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": {}
+    }
+  ]
+}

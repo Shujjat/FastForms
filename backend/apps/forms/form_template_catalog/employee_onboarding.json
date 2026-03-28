@@ -1,0 +1,79 @@
+{
+  "id": "employee_onboarding",
+  "title": "New hire intake",
+  "description": "Start date, role, equipment needs, and emergency contact — optional fields marked clearly.",
+  "category": "HR",
+  "tags": ["hr", "onboarding", "internal"],
+  "thank_you_message": "Welcome aboard — HR will confirm your start details shortly.",
+  "appearance": {
+    "accent": "#0d9488",
+    "accentText": "#ffffff",
+    "pageBg": "#f0fdfa",
+    "cardBg": "#ffffff",
+    "radius": "12px",
+    "cardShadow": "0 4px 20px rgba(13, 148, 136, 0.12)",
+    "animation": "fadeIn",
+    "bodyBorder": "1px solid #ccfbf1"
+  },
+  "questions": [
+    {
+      "text": "Legal full name",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": { "min_length": 2, "max_length": 120 }
+    },
+    {
+      "text": "Personal email",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {
+        "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+        "max_length": 120
+      }
+    },
+    {
+      "text": "First day (on-site or remote)",
+      "question_type": "date",
+      "required": true,
+      "options": [],
+      "validation": { "min_date": "2020-01-01", "max_date": "2032-12-31" }
+    },
+    {
+      "text": "Department",
+      "question_type": "dropdown",
+      "required": true,
+      "options": ["Engineering", "Product", "Design", "Sales", "Support", "Operations"],
+      "validation": {}
+    },
+    {
+      "text": "Do you need a laptop shipped before day one?",
+      "question_type": "single_choice",
+      "required": false,
+      "options": ["Yes", "No", "Already have company hardware"],
+      "validation": {}
+    },
+    {
+      "text": "Shirt size (optional, for welcome kit)",
+      "question_type": "dropdown",
+      "required": false,
+      "options": ["XS", "S", "M", "L", "XL", "XXL", "Prefer not to say"],
+      "validation": {}
+    },
+    {
+      "text": "Dietary notes for team lunch (optional)",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": { "max_length": 500 }
+    },
+    {
+      "text": "Anything else we should know?",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": { "max_length": 2000 }
+    }
+  ]
+}

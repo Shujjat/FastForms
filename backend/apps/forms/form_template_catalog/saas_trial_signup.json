@@ -1,0 +1,84 @@
+{
+  "id": "saas_trial_signup",
+  "title": "Product trial signup",
+  "description": "Company profile, use case, and optional technical contacts for B2B trials.",
+  "category": "Business",
+  "tags": ["saas", "trial", "b2b"],
+  "thank_you_message": "Thanks — your trial workspace will be provisioned shortly. Check your inbox for next steps.",
+  "appearance": {
+    "accent": "#0ea5e9",
+    "accentText": "#ffffff",
+    "pageGradient": "linear-gradient(200deg, #e0f2fe 0%, #f0f9ff 45%, #ffffff 100%)",
+    "pageBg": "#e0f2fe",
+    "headerGradient": "linear-gradient(90deg, #0284c7, #0ea5e9)",
+    "cardBg": "rgba(255, 255, 255, 0.97)",
+    "radius": "12px",
+    "fontFamily": "'Segoe UI', system-ui, sans-serif",
+    "cardShadow": "0 10px 30px rgba(14, 165, 233, 0.15)",
+    "animation": "fadeIn",
+    "bodyBorder": "1px solid #bae6fd"
+  },
+  "questions": [
+    {
+      "text": "Work email",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {
+        "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+        "max_length": 120
+      }
+    },
+    {
+      "text": "Company name",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": { "min_length": 2, "max_length": 160 }
+    },
+    {
+      "text": "Company size",
+      "question_type": "dropdown",
+      "required": true,
+      "options": ["1–10", "11–50", "51–200", "201–1000", "1000+"],
+      "validation": {}
+    },
+    {
+      "text": "Primary use case",
+      "question_type": "single_choice",
+      "required": true,
+      "options": [
+        "Replace a spreadsheet workflow",
+        "Customer-facing forms",
+        "Internal ops / approvals",
+        "Research & surveys",
+        "Other"
+      ],
+      "validation": {}
+    },
+    {
+      "text": "How soon do you need to go live?",
+      "question_type": "single_choice",
+      "required": false,
+      "options": ["This week", "This month", "This quarter", "Just exploring"],
+      "validation": {}
+    },
+    {
+      "text": "Technical contact email (optional)",
+      "question_type": "short_text",
+      "required": false,
+      "options": [],
+      "validation": {
+        "pattern": "^(|[^@\\s]+@[^@\\s]+\\.[^@\\s]+)$",
+        "max_length": 120
+      }
+    },
+    {
+      "text": "Integrations or compliance needs (optional)",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": { "max_length": 1500 }
+    }
+  ]
+}

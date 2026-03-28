@@ -1,0 +1,45 @@
+{
+  "id": "job_application_lite",
+  "title": "Job application (short)",
+  "description": "Basic screening: role, links, availability.",
+  "category": "HR",
+  "tags": ["hiring", "careers"],
+  "thank_you_message": "We received your application.",
+  "appearance": {
+    "accent": "#1e293b",
+    "accentText": "#ffffff",
+    "pageBg": "#f8fafc",
+    "cardBg": "#ffffff",
+    "radius": "8px"
+  },
+  "questions": [
+    {
+      "text": "Full name",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Role you're applying for",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "LinkedIn or portfolio URL",
+      "question_type": "short_text",
+      "required": false,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Why this role?",
+      "question_type": "paragraph",
+      "required": true,
+      "options": [],
+      "validation": {}
+    }
+  ]
+}

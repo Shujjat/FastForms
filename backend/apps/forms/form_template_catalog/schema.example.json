@@ -1,0 +1,31 @@
+{
+  "id": "example_stub",
+  "title": "Example",
+  "description": "One-line description for the gallery.",
+  "category": "General",
+  "tags": ["sample"],
+  "thank_you_message": "Thanks for your response.",
+  "appearance": {
+    "accent": "#673ab7",
+    "accentText": "#ffffff",
+    "pageBg": "#f3f4f6",
+    "pageGradient": "linear-gradient(180deg, #f3f4f6, #ffffff)",
+    "headerGradient": "linear-gradient(90deg, #673ab7, #9575cd)",
+    "cardBg": "#ffffff",
+    "radius": "12px",
+    "fontFamily": "'Segoe UI', system-ui, sans-serif",
+    "cardShadow": "0 8px 24px rgba(0, 0, 0, 0.08)",
+    "animation": "fadeIn",
+    "bodyBorder": "1px solid #e5e7eb",
+    "darkMode": false
+  },
+  "questions": [
+    {
+      "text": "Sample question",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    }
+  ]
+}

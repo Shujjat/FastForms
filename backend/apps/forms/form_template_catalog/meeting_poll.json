@@ -1,0 +1,31 @@
+{
+  "id": "meeting_poll",
+  "title": "Pick a meeting time",
+  "description": "Vote when everyone can meet.",
+  "category": "Work",
+  "tags": ["schedule", "poll"],
+  "thank_you_message": "Thanks — your availability is saved.",
+  "appearance": {
+    "accent": "#0d9488",
+    "accentText": "#ffffff",
+    "pageBg": "#f0fdfa",
+    "cardBg": "#ffffff",
+    "radius": "10px"
+  },
+  "questions": [
+    {
+      "text": "Which slots work for you? (select all that apply)",
+      "question_type": "multi_choice",
+      "required": true,
+      "options": ["Mon 9–11", "Mon 2–4", "Tue 10–12", "Wed 3–5"],
+      "validation": {}
+    },
+    {
+      "text": "Timezone",
+      "question_type": "short_text",
+      "required": false,
+      "options": [],
+      "validation": {}
+    }
+  ]
+}

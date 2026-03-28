@@ -1,0 +1,31 @@
+{
+  "id": "newsletter_signup",
+  "title": "Newsletter signup",
+  "description": "Email and optional interests.",
+  "category": "Marketing",
+  "tags": ["email", "subscribe"],
+  "thank_you_message": "You're on the list. Welcome!",
+  "appearance": {
+    "accent": "#dc2626",
+    "accentText": "#ffffff",
+    "pageBg": "#fef2f2",
+    "cardBg": "#ffffff",
+    "radius": "12px"
+  },
+  "questions": [
+    {
+      "text": "Email address",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Topics I care about",
+      "question_type": "multi_choice",
+      "required": false,
+      "options": ["Product updates", "Events", "How-tos", "Offers"],
+      "validation": {}
+    }
+  ]
+}

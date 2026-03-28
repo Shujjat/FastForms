@@ -1,14 +1,16 @@
 import csv
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
-from django.db.models import Max
+from django.db.models import Max, Prefetch, Q
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from .models import Answer, Form, FormCollaborator, Question, Response as FormResponse
@@ -24,6 +26,8 @@ from .serializers import (
     ResponseSubmitSerializer,
 )
 from .tasks import send_new_response_notification_task
+from .template_loader import get_template, list_template_summaries
+from apps.users.avatar import gravatar_url
 
 
 class FormViewSet(viewsets.ModelViewSet):
@@ -33,11 +37,18 @@ class FormViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if user.is_authenticated:
-            return (
-                self.queryset.filter(owner=user)
-                | self.queryset.filter(collaborators__user=user)
-                | self.queryset.filter(status=Form.Status.PUBLISHED, visibility=Form.Visibility.PUBLIC)
+            # Only forms this user owns, collaborates on, or has submitted to (not every public form).
+            qs = self.queryset.filter(
+                Q(owner=user) | Q(collaborators__user=user) | Q(responses__respondent=user)
             ).distinct()
+            return qs.select_related("owner").prefetch_related(
+                "questions",
+                Prefetch(
+                    "collaborators",
+                    queryset=FormCollaborator.objects.filter(user=user),
+                    to_attr="_my_collaborations",
+                ),
+            )
         return self.queryset.filter(status=Form.Status.PUBLISHED, visibility=Form.Visibility.PUBLIC)
 
     def get_serializer_class(self):
@@ -48,12 +59,60 @@ class FormViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in {"create"}:
             return [permissions.IsAuthenticated(), IsCreatorOrAdmin()]
-        if self.action in {"update", "partial_update", "destroy", "publish", "questions", "reorder_questions", "invite"}:
+        if self.action in {
+            "update",
+            "partial_update",
+            "destroy",
+            "publish",
+            "questions",
+            "reorder_questions",
+            "invite",
+            "duplicate",
+            "collaborator_search",
+        }:
             return [permissions.IsAuthenticated(), CanEditForm()]
         return [permissions.IsAuthenticated(), IsOwnerOrReadOnly()]
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+
+    @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated, CanEditForm])
+    def duplicate(self, request, pk=None):
+        source = self.get_object()
+        with transaction.atomic():
+            new_form = Form.objects.create(
+                owner=request.user,
+                title=f"{source.title} (copy)",
+                description=source.description,
+                thank_you_message=source.thank_you_message or "",
+                appearance=dict(source.appearance) if source.appearance else {},
+                fill_mode=source.fill_mode,
+                visibility=source.visibility,
+                status=Form.Status.DRAFT,
+                one_response_per_user=source.one_response_per_user,
+                opens_at=source.opens_at,
+                closes_at=source.closes_at,
+            )
+            for q in source.questions.order_by("order_index", "id"):
+                Question.objects.create(
+                    form=new_form,
+                    order_index=q.order_index,
+                    question_type=q.question_type,
+                    text=q.text,
+                    required=q.required,
+                    disabled=q.disabled,
+                    options=list(q.options) if q.options else [],
+                    validation=dict(q.validation) if q.validation else {},
+                )
+        new_form = (
+            Form.objects.select_related("owner")
+            .prefetch_related("questions")
+            .get(pk=new_form.pk)
+        )
+        return Response(
+            FormSerializer(new_form, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated, CanEditForm])
     def publish(self, request, pk=None):
@@ -102,6 +161,45 @@ class FormViewSet(viewsets.ModelViewSet):
         role = serializer.validated_data["role"]
         row, _ = FormCollaborator.objects.update_or_create(form=form, user=target, defaults={"role": role})
         return Response(CollaboratorSerializer(row).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"], permission_classes=[permissions.IsAuthenticated, CanEditForm])
+    def collaborator_search(self, request, pk=None):
+        form = self.get_object()
+        if form.owner_id != request.user.id:
+            return Response(
+                {"detail": "Only the form owner can search users."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        User = get_user_model()
+        raw = (request.query_params.get("q") or "").strip()
+        if len(raw) < 2:
+            return Response({"results": []})
+        existing = set(FormCollaborator.objects.filter(form=form).values_list("user_id", flat=True))
+        existing.add(form.owner_id)
+        qs = (
+            User.objects.filter(
+                Q(username__icontains=raw)
+                | Q(email__icontains=raw)
+                | Q(first_name__icontains=raw)
+                | Q(last_name__icontains=raw)
+            )
+            .exclude(id__in=existing)
+            .distinct()[:25]
+        )
+        results = []
+        for u in qs:
+            results.append(
+                {
+                    "id": u.id,
+                    "username": u.username,
+                    "email": u.email or "",
+                    "first_name": u.first_name or "",
+                    "last_name": u.last_name or "",
+                    "display_name": (u.get_full_name() or u.username or "").strip(),
+                    "avatar_url": gravatar_url(u.email or ""),
+                }
+            )
+        return Response({"results": results})
 
     @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated, CanEditForm])
     def invite(self, request, pk=None):
@@ -369,3 +467,66 @@ def export_responses(request, form_id):
         writer.writerow(row)
 
     return response
+
+
+def _create_form_from_template_payload(user, payload: dict) -> Form:
+    valid_types = {c.value for c in Question.Types}
+    questions_raw = payload.get("questions") or []
+    if not questions_raw:
+        raise ValidationError({"questions": "Template must include at least one question."})
+    appearance = payload.get("appearance")
+    if appearance is not None and not isinstance(appearance, dict):
+        appearance = {}
+    elif appearance is None:
+        appearance = {}
+    fill_mode = payload.get("fill_mode") or Form.FillMode.ALL_AT_ONCE
+    if fill_mode not in {Form.FillMode.ALL_AT_ONCE, Form.FillMode.WIZARD}:
+        fill_mode = Form.FillMode.ALL_AT_ONCE
+    with transaction.atomic():
+        form = Form.objects.create(
+            owner=user,
+            title=(payload.get("title") or "Untitled")[:255],
+            description=payload.get("description") or "",
+            thank_you_message=payload.get("thank_you_message") or "",
+            appearance=appearance,
+            fill_mode=fill_mode,
+            status=Form.Status.DRAFT,
+            visibility=Form.Visibility.PUBLIC,
+        )
+        for idx, q in enumerate(questions_raw):
+            qt = q.get("question_type")
+            if qt not in valid_types:
+                raise ValidationError({"questions": f"Invalid question_type: {qt!r}."})
+            Question.objects.create(
+                form=form,
+                order_index=idx,
+                question_type=qt,
+                text=(q.get("text") or "Question")[:500],
+                required=bool(q.get("required", False)),
+                disabled=bool(q.get("disabled", False)),
+                options=list(q.get("options") or []),
+                validation=dict(q.get("validation") or {}),
+            )
+    return Form.objects.prefetch_related("questions").get(pk=form.pk)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.AllowAny])
+def list_form_templates(request):
+    return Response(list_template_summaries())
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated, IsCreatorOrAdmin])
+def create_form_from_template(request):
+    tid = (request.data or {}).get("template_id")
+    if not tid:
+        return Response({"detail": "template_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+    payload = get_template(str(tid))
+    if not payload:
+        return Response({"detail": "Unknown template."}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        form = _create_form_from_template_payload(request.user, payload)
+    except ValidationError as e:
+        return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+    return Response(FormSerializer(form, context={"request": request}).data, status=status.HTTP_201_CREATED)

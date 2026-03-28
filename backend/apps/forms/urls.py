@@ -1,12 +1,23 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import FormViewSet, analytics, export_responses, list_responses, submit_response, update_or_delete_question
+from .views import (
+    FormViewSet,
+    analytics,
+    create_form_from_template,
+    export_responses,
+    list_form_templates,
+    list_responses,
+    submit_response,
+    update_or_delete_question,
+)
 
 router = DefaultRouter(trailing_slash=False)
 router.register("forms", FormViewSet, basename="forms")
 
 urlpatterns = [
+    path("form-templates", list_form_templates, name="form-templates"),
+    path("forms/from_template", create_form_from_template, name="forms-from-template"),
     path("", include(router.urls)),
     path("forms/<int:form_id>/submit", submit_response, name="submit-response"),
     path("forms/<int:form_id>/responses", list_responses, name="list-responses"),

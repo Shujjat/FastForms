@@ -1,6 +1,8 @@
 # FastForms MVP
 
-FastForms is a production-oriented Google Forms-like baseline with:
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+FastForms is open source under the [MIT License](LICENSE). It is a production-oriented Google Forms-like baseline with:
 - JWT auth and role field
 - Form builder APIs
 - Collaborator sharing (editor/viewer)
@@ -12,7 +14,15 @@ FastForms is a production-oriented Google Forms-like baseline with:
 ## Project Structure
 - `backend/` Django + DRF API
 - `frontend/` React (Vite) app
-- `Docs/` SRS, roadmap, [ExecutionPlan.md](Docs/ExecutionPlan.md), [SECURITY.md](Docs/SECURITY.md), [CELERY.md](Docs/CELERY.md)
+- `Docs/` SRS, roadmap, [ExecutionPlan.md](Docs/ExecutionPlan.md), [DEPLOYMENT.md](Docs/DEPLOYMENT.md), [CONTRIBUTING.md](Docs/CONTRIBUTING.md), [RUN_ON_NEW_SYSTEM.md](Docs/RUN_ON_NEW_SYSTEM.md), [SECURITY.md](Docs/SECURITY.md), [CELERY.md](Docs/CELERY.md), [Ollama_AI_Integration_Plan.md](Docs/Ollama_AI_Integration_Plan.md) (optional local AI)
+
+## Open source and collaboration
+
+- **Repository:** [github.com/Shujjat/FastForms](https://github.com/Shujjat/FastForms)
+- **License:** [MIT](LICENSE) — use and contribute under those terms.
+- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md) and the longer guide in [Docs/CONTRIBUTING.md](Docs/CONTRIBUTING.md).
+- **Security:** Report vulnerabilities privately — [Docs/SECURITY.md](Docs/SECURITY.md).
+- **CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs backend migrations + pytest (SQLite) and `npm run build` on pushes and pull requests.
 
 ## Run Locally (primary workflow)
 
@@ -49,6 +59,8 @@ From repository root: `docker compose up --build`
 
 ## Production (summary)
 
+Full checklist and hosting patterns are in [Docs/DEPLOYMENT.md](Docs/DEPLOYMENT.md). In short:
+
 - Set `DEBUG=False`, a strong `DJANGO_SECRET_KEY`, and `ALLOWED_HOSTS` to your hostnames.
 - Set `CORS_ALLOWED_ORIGINS` to your frontend origin(s) (comma-separated).
 - Use HTTPS and terminate TLS at a reverse proxy; see [Docs/SECURITY.md](Docs/SECURITY.md).
@@ -71,6 +83,8 @@ From repository root: `docker compose up --build`
 - `GET /api/forms/{id}/responses` — optional query: `search`, `submitted_after`, `submitted_before`, `respondent_id`
 - `GET /api/forms/{id}/analytics`
 - `GET /api/forms/{id}/export?export_format=csv|json`
+- `GET /api/ai/health` — `{ "llm_enabled": true|false }` (optional; requires server-side Ollama config)
+- `POST /api/ai/suggest_form` — `{ "prompt": "..." }` — AI-assisted form draft (creators/admins only when LLM is configured)
 
 ## Testing
 - Backend unittest-style: `python manage.py test`
@@ -94,3 +108,9 @@ Use the same `backend/.env` as when you start the server. If migrations report n
 `python manage.py migrate token_blacklist zero`
 
 `python manage.py migrate`
+
+## License
+
+This project is licensed under the **MIT License** — see [LICENSE](LICENSE). You may use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, subject to including the copyright notice and permission notice in any substantial portion of the software. The software is provided **as is**, without warranty.
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and [Docs/CONTRIBUTING.md](Docs/CONTRIBUTING.md) (maintainer contact and deeper guide).

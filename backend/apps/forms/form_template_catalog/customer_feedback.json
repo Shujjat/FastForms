@@ -1,0 +1,38 @@
+{
+  "id": "customer_feedback",
+  "title": "Customer feedback",
+  "description": "NPS-style rating plus free text.",
+  "category": "Feedback",
+  "tags": ["nps", "satisfaction"],
+  "thank_you_message": "Thank you for helping us improve.",
+  "appearance": {
+    "accent": "#059669",
+    "accentText": "#ffffff",
+    "pageBg": "#ecfdf5",
+    "cardBg": "#ffffff",
+    "radius": "12px"
+  },
+  "questions": [
+    {
+      "text": "How satisfied are you with our service?",
+      "question_type": "rating",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "What would you improve?",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "May we contact you for follow-up?",
+      "question_type": "single_choice",
+      "required": false,
+      "options": ["Yes", "No"],
+      "validation": {}
+    }
+  ]
+}

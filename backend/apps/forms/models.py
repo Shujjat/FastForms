@@ -12,14 +12,21 @@ class Form(models.Model):
         PUBLIC = "public", "Public"
         PRIVATE = "private", "Private"
 
+    class FillMode(models.TextChoices):
+        ALL_AT_ONCE = "all_at_once", "All at once"
+        WIZARD = "wizard", "Wizard (one question per step)"
+
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="forms")
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+    thank_you_message = models.TextField(blank=True, default="")
+    appearance = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     visibility = models.CharField(max_length=20, choices=Visibility.choices, default=Visibility.PUBLIC)
     one_response_per_user = models.BooleanField(default=False)
     opens_at = models.DateTimeField(null=True, blank=True)
     closes_at = models.DateTimeField(null=True, blank=True)
+    fill_mode = models.CharField(max_length=20, choices=FillMode.choices, default=FillMode.ALL_AT_ONCE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -43,6 +50,7 @@ class Question(models.Model):
     question_type = models.CharField(max_length=30, choices=Types.choices)
     text = models.CharField(max_length=500)
     required = models.BooleanField(default=False)
+    disabled = models.BooleanField(default=False)
     options = models.JSONField(default=list, blank=True)
     validation = models.JSONField(default=dict, blank=True)
 

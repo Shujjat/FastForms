@@ -4,19 +4,23 @@ from datetime import datetime
 from django.utils import timezone
 from rest_framework import serializers
 
+from apps.users.avatar import gravatar_url
 from apps.users.models import User
 
 from .models import Answer, Form, FormCollaborator, Question, Response
+from .validation_formats import validate_text_format
 
 _ALLOWED_VALIDATION_KEYS = frozenset(
-    {"min_length", "max_length", "min", "max", "pattern", "min_date", "max_date"}
+    {"min_length", "max_length", "min", "max", "pattern", "min_date", "max_date", "format"}
 )
+
+_ALLOWED_FORMATS = frozenset({"email", "phone", "url", "zip_us", "integer", "alphanumeric"})
 
 
 class QuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
-        fields = ("id", "order_index", "question_type", "text", "required", "options", "validation")
+        fields = ("id", "order_index", "question_type", "text", "required", "disabled", "options", "validation")
 
     def validate_validation(self, value):
         if not isinstance(value, dict):
@@ -24,11 +28,17 @@ class QuestionSerializer(serializers.ModelSerializer):
         extra = set(value.keys()) - _ALLOWED_VALIDATION_KEYS
         if extra:
             raise serializers.ValidationError(f"Unknown validation keys: {', '.join(sorted(extra))}")
+        fmt = value.get("format")
+        if fmt is not None and str(fmt).strip() != "" and fmt not in _ALLOWED_FORMATS:
+            raise serializers.ValidationError(
+                f"Invalid format {fmt!r}. Allowed: {', '.join(sorted(_ALLOWED_FORMATS))}."
+            )
         return value
 
 
 class FormSerializer(serializers.ModelSerializer):
     questions = QuestionSerializer(many=True, read_only=True)
+    my_role = serializers.SerializerMethodField()
 
     class Meta:
         model = Form
@@ -36,6 +46,9 @@ class FormSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
+            "thank_you_message",
+            "appearance",
+            "fill_mode",
             "status",
             "visibility",
             "one_response_per_user",
@@ -44,14 +57,59 @@ class FormSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "questions",
+            "my_role",
         )
-        read_only_fields = ("created_at", "updated_at")
+        read_only_fields = ("created_at", "updated_at", "my_role")
+
+    def get_my_role(self, obj):
+        """How the current user relates to this form: owner | editor | viewer | respondent."""
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+        user = request.user
+        if obj.owner_id == user.id:
+            return "owner"
+        collabs = getattr(obj, "_my_collaborations", None) or []
+        if collabs:
+            return collabs[0].role
+        return "respondent"
 
 
 class FormCreateSerializer(serializers.ModelSerializer):
+    my_role = serializers.SerializerMethodField()
+
     class Meta:
         model = Form
-        fields = ("id", "title", "description", "visibility", "one_response_per_user", "opens_at", "closes_at")
+        fields = (
+            "id",
+            "title",
+            "description",
+            "thank_you_message",
+            "appearance",
+            "fill_mode",
+            "visibility",
+            "one_response_per_user",
+            "opens_at",
+            "closes_at",
+            "my_role",
+        )
+        read_only_fields = ("my_role",)
+
+    def get_my_role(self, obj):
+        return "owner"
+
+    def update(self, instance, validated_data):
+        request = self.context.get("request")
+        if (
+            request
+            and request.user.is_authenticated
+            and "visibility" in validated_data
+            and instance.owner_id != request.user.id
+        ):
+            raise serializers.ValidationError(
+                {"visibility": "Only the form owner can change visibility."}
+            )
+        return super().update(instance, validated_data)
 
 
 def _validate_answer_against_rules(question: Question, raw_value):
@@ -72,6 +130,12 @@ def _validate_answer_against_rules(question: Question, raw_value):
             raise serializers.ValidationError(
                 f"Question {qid}: answer must be at most {rules['max_length']} characters."
             )
+        fmt = (rules.get("format") or "").strip()
+        if s and fmt:
+            try:
+                validate_text_format(s, fmt)
+            except ValueError as e:
+                raise serializers.ValidationError(f"Question {qid}: {e.args[0]}") from e
         if s and "pattern" in rules:
             pat = rules["pattern"]
             if not re.match(pat, s):
@@ -120,16 +184,23 @@ class ResponseSubmitSerializer(serializers.Serializer):
         payload = attrs["answers"]
         questions = list(form.questions.all())
         q_by_id = {str(q.id): q for q in questions}
-        required_ids = {str(q.id) for q in questions if q.required}
+        active_questions = [q for q in questions if not q.disabled]
+        active_ids = {str(q.id) for q in active_questions}
+        required_ids = {str(q.id) for q in active_questions if q.required}
         submitted = set(payload.keys())
+        unknown = submitted - active_ids
+        if unknown:
+            raise serializers.ValidationError(
+                f"Invalid or disabled question id(s) in answers: {', '.join(sorted(unknown))}"
+            )
         missing = sorted(required_ids - submitted)
         if missing:
             raise serializers.ValidationError(f"Missing required answers for question IDs: {', '.join(missing)}")
 
         for qid, value in payload.items():
             q = q_by_id.get(str(qid))
-            if not q:
-                raise serializers.ValidationError(f"Unknown question id: {qid}")
+            if not q or q.disabled:
+                continue
             _validate_answer_against_rules(q, value)
         return attrs
 
@@ -151,11 +222,20 @@ class ResponseSerializer(serializers.ModelSerializer):
 class CollaboratorSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
+    display_name = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = FormCollaborator
-        fields = ("id", "user", "username", "email", "role", "created_at")
+        fields = ("id", "user", "username", "email", "display_name", "avatar_url", "role", "created_at")
         read_only_fields = ("id", "created_at")
+
+    def get_display_name(self, obj):
+        u = obj.user
+        return (u.get_full_name() or u.username or "").strip()
+
+    def get_avatar_url(self, obj):
+        return gravatar_url(obj.user.email or "")
 
 
 class CollaboratorCreateSerializer(serializers.Serializer):

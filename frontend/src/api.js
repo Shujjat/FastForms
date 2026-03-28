@@ -51,6 +51,60 @@ async function refreshAccessToken() {
   return refreshPromise;
 }
 
+/**
+ * Download form responses (CSV or JSON) using the logged-in session.
+ * Plain browser navigation to /api/.../export does not send the Authorization header.
+ */
+export async function downloadFormExport(formId, exportFormat = "csv") {
+  try {
+    const res = await api.get(`/api/forms/${formId}/export`, {
+      params: { export_format: exportFormat },
+      responseType: "blob",
+    });
+    const cd = res.headers["content-disposition"] || res.headers["Content-Disposition"] || "";
+    const ext = exportFormat === "json" ? "json" : "csv";
+    let filename = `form_${formId}_responses.${ext}`;
+    const mStar = /filename\*=UTF-8''([^;\n]+)/i.exec(cd);
+    const mQuoted = /filename="([^"]+)"/i.exec(cd);
+    if (mStar) {
+      try {
+        filename = decodeURIComponent(mStar[1].trim());
+      } catch {
+        filename = mStar[1].trim();
+      }
+    } else if (mQuoted) {
+      filename = mQuoted[1];
+    }
+
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    const data = e.response?.data;
+    if (data instanceof Blob) {
+      const text = await data.text();
+      let detail = text;
+      try {
+        const j = JSON.parse(text);
+        detail = j.detail || j.message || text;
+      } catch {
+        /* keep text */
+      }
+      throw new Error(typeof detail === "string" ? detail : "Export failed");
+    }
+    const d = e.response?.data;
+    if (typeof d === "object" && d !== null && d.detail) {
+      throw new Error(d.detail);
+    }
+    throw new Error(e.message || "Export failed");
+  }
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {

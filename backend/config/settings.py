@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "apps.users",
     "apps.forms",
+    "apps.llm",
 ]
 
 MIDDLEWARE = [
@@ -144,6 +145,7 @@ REST_FRAMEWORK = {
         "anon": "100/hour",
         "user": "1000/hour",
         "auth": "30/hour",
+        "ai": "60/hour",
     },
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
@@ -171,3 +173,10 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173").rstr
 
 # Google Sign-In (Web client ID from Google Cloud Console OAuth 2.0)
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+
+# --- LLM (Ollama OpenAI-compatible API) — see Docs/Ollama_AI_Integration_Plan.md ---
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip().lower()
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2").strip()
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()

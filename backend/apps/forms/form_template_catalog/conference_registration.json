@@ -1,0 +1,75 @@
+{
+  "id": "conference_registration",
+  "title": "Conference / workshop registration",
+  "description": "Session choice, dietary needs, and optional company details.",
+  "category": "Events",
+  "tags": ["events", "registration", "workshop"],
+  "thank_you_message": "You're registered — check your email for the calendar invite and venue details.",
+  "appearance": {
+    "accent": "#db2777",
+    "accentText": "#ffffff",
+    "pageGradient": "linear-gradient(135deg, #fdf2f8 0%, #fce7f3 40%, #fff 100%)",
+    "pageBg": "#fdf2f8",
+    "headerGradient": "linear-gradient(90deg, #db2777, #ec4899)",
+    "cardBg": "#ffffff",
+    "radius": "14px",
+    "animation": "fadeIn",
+    "headerBorderWidth": "0px",
+    "borderTop": "none",
+    "bodyBorder": "1px solid #fbcfe8"
+  },
+  "questions": [
+    {
+      "text": "Full name",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": { "min_length": 2, "max_length": 100 }
+    },
+    {
+      "text": "Email",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {
+        "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+        "max_length": 120
+      }
+    },
+    {
+      "text": "Which track will you attend?",
+      "question_type": "single_choice",
+      "required": true,
+      "options": ["Product & design", "Engineering deep-dive", "Leadership & culture"],
+      "validation": {}
+    },
+    {
+      "text": "Attendance mode",
+      "question_type": "dropdown",
+      "required": true,
+      "options": ["In person", "Virtual livestream", "Hybrid (TBD)"],
+      "validation": {}
+    },
+    {
+      "text": "Dietary requirements",
+      "question_type": "multi_choice",
+      "required": false,
+      "options": ["None", "Vegetarian", "Vegan", "Gluten-free", "Halal", "Other (see notes)"],
+      "validation": {}
+    },
+    {
+      "text": "Company / organization (optional)",
+      "question_type": "short_text",
+      "required": false,
+      "options": [],
+      "validation": { "max_length": 120 }
+    },
+    {
+      "text": "Questions for the hosts (optional)",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": { "max_length": 1500 }
+    }
+  ]
+}

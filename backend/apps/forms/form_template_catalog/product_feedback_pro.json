@@ -1,0 +1,63 @@
+{
+  "id": "product_feedback_pro",
+  "title": "Product feedback (detailed)",
+  "description": "Ratings, optional follow-ups, and free text — with validation rules you can tweak.",
+  "category": "Product",
+  "tags": ["feedback", "nps", "saas"],
+  "thank_you_message": "Thanks — your feedback helps us improve the product.",
+  "appearance": {
+    "accent": "#6366f1",
+    "accentText": "#ffffff",
+    "pageGradient": "linear-gradient(160deg, #eef2ff 0%, #faf5ff 50%, #fdf4ff 100%)",
+    "pageBg": "#eef2ff",
+    "headerGradient": "linear-gradient(90deg, #6366f1, #a855f7)",
+    "cardBg": "rgba(255, 255, 255, 0.94)",
+    "radius": "16px",
+    "fontFamily": "'Segoe UI', system-ui, sans-serif",
+    "cardShadow": "0 16px 40px rgba(99, 102, 241, 0.18)",
+    "animation": "rise",
+    "headerBorderWidth": "0px",
+    "borderTop": "none",
+    "bodyBorder": "1px solid rgba(99, 102, 241, 0.12)"
+  },
+  "questions": [
+    {
+      "text": "How long have you used our product?",
+      "question_type": "single_choice",
+      "required": true,
+      "options": ["Less than a month", "1–6 months", "6–12 months", "More than a year"],
+      "validation": {}
+    },
+    {
+      "text": "Overall, how satisfied are you? (1 = poor, 10 = excellent)",
+      "question_type": "rating",
+      "required": true,
+      "options": [],
+      "validation": { "min": 1, "max": 10 }
+    },
+    {
+      "text": "Which areas matter most to you? (select all that apply)",
+      "question_type": "multi_choice",
+      "required": false,
+      "options": ["Speed", "Reliability", "Ease of use", "Integrations", "Support", "Pricing"],
+      "validation": {}
+    },
+    {
+      "text": "What would make you recommend us to a colleague?",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": { "min_length": 20, "max_length": 2000 }
+    },
+    {
+      "text": "Work email (optional — only if you want a follow-up)",
+      "question_type": "short_text",
+      "required": false,
+      "options": [],
+      "validation": {
+        "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+        "max_length": 120
+      }
+    }
+  ]
+}

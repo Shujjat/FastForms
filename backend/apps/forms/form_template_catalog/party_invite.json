@@ -1,0 +1,38 @@
+{
+  "id": "party_invite",
+  "title": "Party guest list",
+  "description": "RSVP and bring a dish?",
+  "category": "Events",
+  "tags": ["social"],
+  "thank_you_message": "Can't wait to see you!",
+  "appearance": {
+    "accent": "#db2777",
+    "accentText": "#ffffff",
+    "pageBg": "#fdf2f8",
+    "cardBg": "#ffffff",
+    "radius": "16px"
+  },
+  "questions": [
+    {
+      "text": "Your name",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "I'll bring",
+      "question_type": "short_text",
+      "required": false,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Any allergies we should know?",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": {}
+    }
+  ]
+}

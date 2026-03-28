@@ -1,0 +1,45 @@
+{
+  "id": "bug_report",
+  "title": "Bug report",
+  "description": "Reproduce steps, severity, and attachment name.",
+  "category": "Product",
+  "tags": ["qa", "software"],
+  "thank_you_message": "Thanks — your report was logged.",
+  "appearance": {
+    "accent": "#ea580c",
+    "accentText": "#ffffff",
+    "pageBg": "#fff7ed",
+    "cardBg": "#ffffff",
+    "radius": "10px"
+  },
+  "questions": [
+    {
+      "text": "What went wrong?",
+      "question_type": "paragraph",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Steps to reproduce",
+      "question_type": "paragraph",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Severity",
+      "question_type": "single_choice",
+      "required": true,
+      "options": ["Low", "Medium", "High", "Blocker"],
+      "validation": {}
+    },
+    {
+      "text": "Screenshot (file name)",
+      "question_type": "file_upload",
+      "required": false,
+      "options": [],
+      "validation": {}
+    }
+  ]
+}

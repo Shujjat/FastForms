@@ -103,6 +103,60 @@ class FastFormsApiTests(APITestCase):
         self.assertEqual(export_csv.status_code, status.HTTP_200_OK)
         self.assertIn("text/csv", export_csv["Content-Type"])
 
+    def test_list_form_templates_public(self):
+        res = self.client.get("/api/form-templates")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(res.data), 16)
+        ids = {row["id"] for row in res.data}
+        self.assertIn("contact_basic", ids)
+
+    def test_create_from_template_requires_creator(self):
+        self._login("resp1")
+        res = self.client.post("/api/forms/from_template", {"template_id": "contact_basic"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_from_template(self):
+        self._login("creator1")
+        res = self.client.post("/api/forms/from_template", {"template_id": "contact_basic"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["title"], "Contact us")
+        self.assertEqual(len(res.data.get("questions") or []), 3)
+        self.assertIsInstance(res.data.get("appearance"), dict)
+
+    def test_duplicate_form_creates_draft_copy(self):
+        self._login("creator1")
+        fid = self.client.post("/api/forms", {"title": "Original", "description": "d"}, format="json").data["id"]
+        self.client.post(
+            f"/api/forms/{fid}/questions",
+            {"order_index": 0, "question_type": "short_text", "text": "Q1", "required": False},
+            format="json",
+        )
+        dup = self.client.post(f"/api/forms/{fid}/duplicate", {}, format="json")
+        self.assertEqual(dup.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(dup.data["status"], "draft")
+        self.assertIn("(copy)", dup.data["title"])
+        self.assertEqual(len(dup.data.get("questions") or []), 1)
+
+    def test_owner_can_change_visibility_editor_cannot(self):
+        User.objects.create_user(
+            username="creator2", email="c2@example.com", password="Password123!", role="creator"
+        )
+        self._login("creator1")
+        form_id = self.client.post("/api/forms", {"title": "Vis", "description": ""}, format="json").data["id"]
+        patch = self.client.patch(f"/api/forms/{form_id}", {"visibility": "private"}, format="json")
+        self.assertEqual(patch.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch.data.get("visibility"), "private")
+
+        self.client.post(
+            f"/api/forms/{form_id}/collaborators",
+            {"username": "creator2", "role": "editor"},
+            format="json",
+        )
+        self._login("creator2")
+        bad = self.client.patch(f"/api/forms/{form_id}", {"visibility": "public"}, format="json")
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("visibility", bad.data)
+
     def test_owner_can_add_collaborator_editor(self):
         self._login("creator1")
         form_id = self.client.post("/api/forms", {"title": "Shared", "description": "d"}, format="json").data["id"]
@@ -113,6 +167,38 @@ class FastFormsApiTests(APITestCase):
         )
         self.assertEqual(add.status_code, status.HTTP_201_CREATED)
         self.assertEqual(add.data["role"], "editor")
+        self.assertIn("avatar_url", add.data)
+
+    def test_owner_collaborator_search_returns_matching_users(self):
+        self._login("creator1")
+        form_id = self.client.post("/api/forms", {"title": "Search collab", "description": ""}, format="json").data["id"]
+        res = self.client.get(f"/api/forms/{form_id}/collaborator_search", {"q": "anal"})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("results", res.data)
+        usernames = {r["username"] for r in res.data["results"]}
+        self.assertIn("analyst1", usernames)
+        for row in res.data["results"]:
+            self.assertIn("avatar_url", row)
+            self.assertIn("display_name", row)
+
+    def test_collaborator_search_short_query_returns_empty(self):
+        self._login("creator1")
+        form_id = self.client.post("/api/forms", {"title": "Q", "description": ""}, format="json").data["id"]
+        res = self.client.get(f"/api/forms/{form_id}/collaborator_search", {"q": "a"})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["results"], [])
+
+    def test_non_owner_cannot_collaborator_search(self):
+        self._login("creator1")
+        form_id = self.client.post("/api/forms", {"title": "Own", "description": ""}, format="json").data["id"]
+        self.client.post(
+            f"/api/forms/{form_id}/collaborators",
+            {"username": "analyst1", "role": "editor"},
+            format="json",
+        )
+        self._login("analyst1")
+        res = self.client.get(f"/api/forms/{form_id}/collaborator_search", {"q": "crea"})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_analyst_editor_collaborator_still_cannot_add_questions(self):
         self._login("creator1")
@@ -130,6 +216,33 @@ class FastFormsApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(q.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_list_forms_only_owned_collaborated_or_submitted(self):
+        self._login("creator1")
+        mine = self.client.post("/api/forms", {"title": "Mine", "description": ""}, format="json").data
+        # Owned by analyst so creator1 and respondent are neither owner nor collaborator until submit.
+        other = Form.objects.create(owner=self.analyst, title="Someone else public", status="published", visibility="public")
+        Question.objects.create(form=other, order_index=0, question_type="short_text", text="Q", required=False)
+
+        res = self.client.get("/api/forms")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        ids = [f["id"] for f in (res.data.get("results") or res.data)]
+        self.assertIn(mine["id"], ids)
+        self.assertNotIn(other.id, ids)
+
+        self._login("resp1")
+        self.client.post(
+            f"/api/forms/{other.id}/submit",
+            {"answers": {str(other.questions.first().id): "hello"}},
+            format="json",
+        )
+        res2 = self.client.get("/api/forms")
+        ids2 = [f["id"] for f in (res2.data.get("results") or res2.data)]
+        self.assertIn(other.id, ids2)
+        self.assertEqual(
+            next(f for f in (res2.data.get("results") or res2.data) if f["id"] == other.id).get("my_role"),
+            "respondent",
+        )
 
     def test_unauthenticated_cannot_access_form_actions(self):
         owned_form = Form.objects.create(owner=self.creator, title="Locked", status="published")
@@ -180,6 +293,108 @@ class FastFormsApiTests(APITestCase):
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
         ok = self.client.post(f"/api/forms/{form.id}/submit", {"answers": {str(q.id): "abcd"}}, format="json")
         self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+
+    def test_answer_validation_format_email(self):
+        form = Form.objects.create(owner=self.creator, title="Email form", status="published")
+        q = Question.objects.create(
+            form=form,
+            order_index=0,
+            question_type="short_text",
+            text="Work email",
+            required=True,
+            validation={"format": "email"},
+        )
+        self._login("resp1")
+        bad = self.client.post(f"/api/forms/{form.id}/submit", {"answers": {str(q.id): "not-an-email"}}, format="json")
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+        ok = self.client.post(
+            f"/api/forms/{form.id}/submit",
+            {"answers": {str(q.id): "user@example.com"}},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+
+    def test_answer_validation_format_phone_digits(self):
+        form = Form.objects.create(owner=self.creator, title="Phone form", status="published")
+        q = Question.objects.create(
+            form=form,
+            order_index=0,
+            question_type="short_text",
+            text="Phone",
+            required=True,
+            validation={"format": "phone"},
+        )
+        self._login("resp1")
+        bad = self.client.post(f"/api/forms/{form.id}/submit", {"answers": {str(q.id): "123"}}, format="json")
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+        ok = self.client.post(
+            f"/api/forms/{form.id}/submit",
+            {"answers": {str(q.id): "+1 (555) 123-4567"}},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+
+    def test_disabled_required_question_not_required_on_submit(self):
+        form = Form.objects.create(owner=self.creator, title="Disabled Q", status="published")
+        q_active = Question.objects.create(
+            form=form,
+            order_index=0,
+            question_type="short_text",
+            text="Active",
+            required=True,
+            disabled=False,
+        )
+        Question.objects.create(
+            form=form,
+            order_index=1,
+            question_type="short_text",
+            text="Hidden but required in editor",
+            required=True,
+            disabled=True,
+        )
+        self._login("resp1")
+        ok = self.client.post(
+            f"/api/forms/{form.id}/submit",
+            {"answers": {str(q_active.id): "only active"}},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+
+    def test_submit_rejects_answer_for_disabled_question(self):
+        form = Form.objects.create(owner=self.creator, title="No disabled answers", status="published")
+        q_active = Question.objects.create(
+            form=form,
+            order_index=0,
+            question_type="short_text",
+            text="Active",
+            required=True,
+            disabled=False,
+        )
+        q_disabled = Question.objects.create(
+            form=form,
+            order_index=1,
+            question_type="short_text",
+            text="Disabled",
+            required=True,
+            disabled=True,
+        )
+        self._login("resp1")
+        bad = self.client.post(
+            f"/api/forms/{form.id}/submit",
+            {"answers": {str(q_active.id): "ok", str(q_disabled.id): "should not send"}},
+            format="json",
+        )
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_creator_can_set_fill_mode(self):
+        self._login("creator1")
+        created = self.client.post("/api/forms", {"title": "Wizard form", "fill_mode": "wizard"}, format="json")
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(created.data.get("fill_mode"), "wizard")
+        fid = created.data["id"]
+        patched = self.client.patch(f"/api/forms/{fid}", {"fill_mode": "all_at_once"}, format="json")
+        self.assertEqual(patched.status_code, status.HTTP_200_OK)
+        self.assertEqual(patched.data.get("fill_mode"), "all_at_once")
 
     def test_invite_requires_published_form(self):
         self._login("creator1")

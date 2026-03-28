@@ -1,0 +1,90 @@
+{
+  "id": "rental_application",
+  "title": "Rental application (screening)",
+  "description": "Applicant details, move-in window, and references — several optional steps.",
+  "category": "Real estate",
+  "tags": ["rental", "leasing", "application"],
+  "thank_you_message": "Thanks — we will review applications in the order received and reply within 2 business days.",
+  "appearance": {
+    "accent": "#1e3a5f",
+    "accentText": "#ffffff",
+    "pageBg": "#f8fafc",
+    "cardBg": "#ffffff",
+    "radius": "10px",
+    "cardShadow": "0 8px 24px rgba(30, 58, 95, 0.1)",
+    "animation": "rise",
+    "bodyBorder": "1px solid #e2e8f0"
+  },
+  "questions": [
+    {
+      "text": "Full legal name",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": { "min_length": 3, "max_length": 120 }
+    },
+    {
+      "text": "Phone number",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {
+        "pattern": "^[+0-9()\\-\\s]{10,20}$",
+        "min_length": 10,
+        "max_length": 20
+      }
+    },
+    {
+      "text": "Email",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {
+        "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+        "max_length": 120
+      }
+    },
+    {
+      "text": "Desired move-in date",
+      "question_type": "date",
+      "required": true,
+      "options": [],
+      "validation": { "min_date": "2024-01-01", "max_date": "2032-12-31" }
+    },
+    {
+      "text": "Number of occupants (including yourself)",
+      "question_type": "dropdown",
+      "required": true,
+      "options": ["1", "2", "3", "4+"],
+      "validation": {}
+    },
+    {
+      "text": "Do you have pets?",
+      "question_type": "single_choice",
+      "required": true,
+      "options": ["No", "Yes — cat(s)", "Yes — dog(s)", "Yes — other"],
+      "validation": {}
+    },
+    {
+      "text": "Employer (optional)",
+      "question_type": "short_text",
+      "required": false,
+      "options": [],
+      "validation": { "max_length": 120 }
+    },
+    {
+      "text": "Why is this property a good fit? (min. 40 characters)",
+      "question_type": "paragraph",
+      "required": true,
+      "options": [],
+      "validation": { "min_length": 40, "max_length": 2500 }
+    },
+    {
+      "text": "Reference: name and relationship (optional)",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": { "max_length": 400 }
+    }
+  ]
+}

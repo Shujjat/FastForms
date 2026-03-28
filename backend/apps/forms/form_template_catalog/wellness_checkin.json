@@ -1,0 +1,53 @@
+{
+  "id": "wellness_checkin",
+  "title": "Weekly wellness check-in",
+  "description": "Short mood scale, stress level, and optional private notes.",
+  "category": "Wellness",
+  "tags": ["wellness", "check-in", "team"],
+  "thank_you_message": "Thanks for checking in — take care this week.",
+  "appearance": {
+    "accent": "#7c3aed",
+    "accentText": "#ffffff",
+    "pageGradient": "linear-gradient(180deg, #f5f3ff 0%, #ede9fe 100%)",
+    "pageBg": "#f5f3ff",
+    "headerGradient": "linear-gradient(90deg, #7c3aed, #a78bfa)",
+    "cardBg": "#ffffff",
+    "radius": "18px",
+    "fontFamily": "Georgia, 'Times New Roman', serif",
+    "cardShadow": "0 12px 36px rgba(124, 58, 237, 0.15)",
+    "animation": "pulse",
+    "headerBorderWidth": "0px",
+    "borderTop": "none",
+    "bodyBorder": "1px solid #ddd6fe"
+  },
+  "questions": [
+    {
+      "text": "How are you feeling overall this week?",
+      "question_type": "rating",
+      "required": true,
+      "options": [],
+      "validation": { "min": 1, "max": 5 }
+    },
+    {
+      "text": "Stress level compared to last week",
+      "question_type": "single_choice",
+      "required": true,
+      "options": ["Lower", "About the same", "Higher"],
+      "validation": {}
+    },
+    {
+      "text": "What helped you most this week? (optional)",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": { "max_length": 800 }
+    },
+    {
+      "text": "Anything you want leadership to know? (optional, private to HR)",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": { "max_length": 2000 }
+    }
+  ]
+}

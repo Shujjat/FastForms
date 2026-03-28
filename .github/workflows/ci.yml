@@ -1,3 +1,6 @@
+# Continuous integration for collaborators and PRs:
+# - backend: migrate (SQLite), full pytest suite, optional pip-audit
+# - frontend: npm ci + production build
 name: CI
 
 on:

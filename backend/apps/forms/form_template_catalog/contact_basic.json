@@ -1,0 +1,38 @@
+{
+  "id": "contact_basic",
+  "title": "Contact us",
+  "description": "Simple name, email, and message — good for websites.",
+  "category": "Business",
+  "tags": ["contact", "support"],
+  "thank_you_message": "We received your message and will get back to you soon.",
+  "appearance": {
+    "accent": "#2563eb",
+    "accentText": "#ffffff",
+    "pageBg": "#f1f5f9",
+    "cardBg": "#ffffff",
+    "radius": "10px"
+  },
+  "questions": [
+    {
+      "text": "Full name",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Email",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "How can we help?",
+      "question_type": "paragraph",
+      "required": true,
+      "options": [],
+      "validation": {}
+    }
+  ]
+}

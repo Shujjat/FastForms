@@ -27,6 +27,13 @@ When `DEBUG=False`, the app enables HTTPS-related settings (`SECURE_SSL_REDIRECT
 
 - Global API throttles apply to anonymous and authenticated users.
 - Auth endpoints (`login`, `register`, `token/refresh`, password reset) use a stricter `auth` scope (see `REST_FRAMEWORK` in `backend/config/settings.py`).
+- Optional AI endpoints (`/api/ai/*`) use a dedicated `ai` throttle scope (per authenticated user). Tune rates in `DEFAULT_THROTTLE_RATES` if you self-host heavy traffic.
+
+## Optional LLM (Ollama)
+
+- AI features are **server-side only**: the backend calls your Ollama (OpenAI-compatible) endpoint using `LLM_PROVIDER`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, and related settings in `backend/.env` — see `backend/.env.example` and [Ollama_AI_Integration_Plan.md](Ollama_AI_Integration_Plan.md).
+- Do not put API keys or model endpoints in the frontend bundle; the React app only calls FastForms APIs.
+- If you expose Ollama beyond localhost, use network controls and optional `OLLAMA_API_KEY` as appropriate for your environment.
 
 ## Password reset
 
@@ -37,3 +44,12 @@ When `DEBUG=False`, the app enables HTTPS-related settings (`SECURE_SSL_REDIRECT
 
 - Run `pip-audit` / `npm audit` periodically; consider CI for dependency checks.
 - Keep PostgreSQL and Redis patched and network-restricted in production.
+
+## Reporting vulnerabilities
+
+Please report security issues **privately** instead of using public issues, so they can be addressed before disclosure.
+
+- Prefer [GitHub Security Advisories](https://github.com/Shujjat/FastForms/security/advisories/new) if enabled on the repository, or
+- Contact the maintainers with enough detail to reproduce (affected version, steps, impact).
+
+Do not include live credentials or production data in reports.

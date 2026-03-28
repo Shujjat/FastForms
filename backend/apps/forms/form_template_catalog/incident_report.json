@@ -1,0 +1,45 @@
+{
+  "id": "incident_report",
+  "title": "Incident report",
+  "description": "When and where — safety or ops.",
+  "category": "Operations",
+  "tags": ["safety", "compliance"],
+  "thank_you_message": "Report received. Reference this submission for follow-up.",
+  "appearance": {
+    "accent": "#b91c1c",
+    "accentText": "#ffffff",
+    "pageBg": "#fef2f2",
+    "cardBg": "#ffffff",
+    "radius": "10px"
+  },
+  "questions": [
+    {
+      "text": "Date and time of incident",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Location",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Description",
+      "question_type": "paragraph",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Injury or property damage?",
+      "question_type": "single_choice",
+      "required": true,
+      "options": ["Yes", "No", "Unknown"],
+      "validation": {}
+    }
+  ]
+}

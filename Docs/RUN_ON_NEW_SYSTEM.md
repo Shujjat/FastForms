@@ -26,7 +26,7 @@ If `python`/`npm` is not recognized, add them to PATH and reopen terminal.
 If using git:
 
 ```powershell
-git clone <your-repo-url>
+git clone https://github.com/Shujjat/FastForms.git
 cd FastForms
 ```
 
@@ -127,7 +127,25 @@ cd frontend
 npm run build
 ```
 
-## 10) Using the Installer (.exe)
+## 10) Optional: Local AI (Ollama)
+
+Form **AI draft** features call the backend, which can use a local [Ollama](https://ollama.com) server (OpenAI-compatible API).
+
+1. Install Ollama for your OS and start it (default `http://127.0.0.1:11434`).
+2. Pull a model, for example: `ollama pull llama3.2`
+3. In `backend/.env`, set (uncomment/adjust as in `backend/.env.example`):
+
+   ```env
+   LLM_PROVIDER=ollama
+   OLLAMA_BASE_URL=http://127.0.0.1:11434
+   OLLAMA_MODEL=llama3.2
+   ```
+
+4. Restart the Django server. In the form designer, use **AI form draft** when logged in as a creator/admin.
+
+Details and acceptance notes: **[Ollama_AI_Integration_Plan.md](Ollama_AI_Integration_Plan.md)**.
+
+## 11) Using the Installer (.exe)
 
 If you have the installer build:
 
@@ -143,7 +161,7 @@ Important:
 - Installer does not bundle Python/Node/PostgreSQL.
 - Those must already be installed on the machine.
 
-## 11) Troubleshooting
+## 12) Troubleshooting
 
 ### A) `python` not found
 - Reinstall Python and check "Add Python to PATH".
@@ -166,9 +184,9 @@ Important:
 - Update frontend API base in `frontend/.env`:
   - `VITE_API_BASE_URL=http://127.0.0.1:8001`
 
-## 12) Production Notes
+## 13) Production Notes
 
-Before production deployment:
+Before production deployment, follow **[DEPLOYMENT.md](DEPLOYMENT.md)** for a full checklist (environment variables, HTTPS, CORS, frontend build, Gunicorn, Celery). In summary:
 
 - Set `DEBUG=False`
 - Use a strong `DJANGO_SECRET_KEY`

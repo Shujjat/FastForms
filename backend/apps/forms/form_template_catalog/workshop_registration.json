@@ -1,0 +1,38 @@
+{
+  "id": "workshop_registration",
+  "title": "Workshop registration",
+  "description": "Name, session choice, experience level.",
+  "category": "Education",
+  "tags": ["training", "signup"],
+  "thank_you_message": "You're registered. See you there!",
+  "appearance": {
+    "accent": "#4f46e5",
+    "accentText": "#ffffff",
+    "pageBg": "#eef2ff",
+    "cardBg": "#ffffff",
+    "radius": "12px"
+  },
+  "questions": [
+    {
+      "text": "Participant name",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Session",
+      "question_type": "single_choice",
+      "required": true,
+      "options": ["Morning", "Afternoon"],
+      "validation": {}
+    },
+    {
+      "text": "Experience level",
+      "question_type": "dropdown",
+      "required": true,
+      "options": ["Beginner", "Intermediate", "Advanced"],
+      "validation": {}
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "volunteer_signup",
+  "title": "Volunteer signup",
+  "description": "Skills and availability for community work.",
+  "category": "Community",
+  "tags": ["nonprofit", "volunteer"],
+  "thank_you_message": "Thanks for volunteering — we'll be in touch.",
+  "appearance": {
+    "accent": "#15803d",
+    "accentText": "#ffffff",
+    "pageBg": "#f0fdf4",
+    "cardBg": "#ffffff",
+    "radius": "12px"
+  },
+  "questions": [
+    {
+      "text": "Name",
+      "question_type": "short_text",
+      "required": true,
+      "options": [],
+      "validation": {}
+    },
+    {
+      "text": "Skills you can offer",
+      "question_type": "multi_choice",
+      "required": false,
+      "options": ["Events", "Tech", "Teaching", "Transport", "Other"],
+      "validation": {}
+    },
+    {
+      "text": "Availability",
+      "question_type": "paragraph",
+      "required": false,
+      "options": [],
+      "validation": {}
+    }
+  ]
+}
