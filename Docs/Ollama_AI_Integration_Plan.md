@@ -33,7 +33,7 @@ Introduce or extend a small **LLM provider** interface used by services and jobs
 | **Selection** | Config or feature flag: `LLM_PROVIDER=ollama` \| `openai_compatible` \| existing gateway id. |
 | **Endpoint** | `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`). Append `/v1/chat/completions` for chat. |
 | **Auth** | None for default local Ollama; optional `OLLAMA_API_KEY` if fronted by a proxy that requires it. |
-| **Model** | `OLLAMA_MODEL` (e.g. `llama3.2`, `mistral`, `qwen2.5`). Keep separate from cloud model names. |
+| **Model** | `OLLAMA_MODEL` must match an installed tag from `ollama list` exactly (e.g. `qwen3:latest`, `llama3.2`). |
 | **Streaming** | Optional phase 2: if the app uses streaming today, enable `stream: true` with SSE parsing; otherwise keep non-streaming. |
 
 Avoid duplicating prompt assembly: one code path builds `messages`; the provider only serializes and calls HTTP.

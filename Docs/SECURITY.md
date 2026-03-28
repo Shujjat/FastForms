@@ -35,6 +35,13 @@ When `DEBUG=False`, the app enables HTTPS-related settings (`SECURE_SSL_REDIRECT
 - Do not put API keys or model endpoints in the frontend bundle; the React app only calls FastForms APIs.
 - If you expose Ollama beyond localhost, use network controls and optional `OLLAMA_API_KEY` as appropriate for your environment.
 
+## User management (admin API)
+
+- Endpoints under **`/api/users/`** (list, create, retrieve, update, soft-delete) require application **`role=admin`** or a Django **superuser** (`IsAdminUser` in `backend/apps/users/permissions.py`).
+- **Staff** (`is_staff`) can only be granted or changed by **superusers** (Django admin access).
+- The API prevents removing the **last active admin** (by role) and prevents users from deactivating themselves via the deactivate flow.
+- The SPA **`/admin/users`** page calls these APIs; treat admin accounts like production credentials.
+
 ## Password reset
 
 - `POST /api/auth/password-reset` with `{ "email": "..." }` sends an email (if the user exists) with a link built from `FRONTEND_BASE_URL`.

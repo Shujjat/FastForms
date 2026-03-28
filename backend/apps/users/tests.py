@@ -57,3 +57,74 @@ class PasswordResetApiTests(APITestCase):
         u = User.objects.get(email="newgoogle@example.com")
         self.assertEqual(u.google_sub, "google-sub-123")
         self.assertEqual(u.role, "creator")
+
+
+class UserManagementApiTests(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="adm",
+            email="adm@example.com",
+            password="Adminpass123!",
+            role=User.Roles.ADMIN,
+        )
+        self.creator = User.objects.create_user(
+            username="cr",
+            email="cr@example.com",
+            password="Creatorpass123!",
+            role=User.Roles.CREATOR,
+        )
+
+    def _auth(self, user):
+        res = self.client.post(
+            "/api/auth/login",
+            {"username": user.username, "password": "Adminpass123!" if user == self.admin else "Creatorpass123!"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+
+    def test_list_forbidden_for_non_admin(self):
+        self._auth(self.creator)
+        res = self.client.get("/api/users/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_lists_users(self):
+        self._auth(self.admin)
+        res = self.client.get("/api/users/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("results", res.data)
+        self.assertGreaterEqual(len(res.data["results"]), 2)
+
+    def test_admin_creates_user(self):
+        self._auth(self.admin)
+        res = self.client.post(
+            "/api/users/",
+            {
+                "username": "newu",
+                "email": "newu@example.com",
+                "password": "Longpass123!",
+                "role": "respondent",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["username"], "newu")
+        self.assertTrue(User.objects.filter(username="newu").exists())
+
+    def test_cannot_demote_last_admin(self):
+        User.objects.exclude(pk=self.admin.pk).delete()
+        self._auth(self.admin)
+        res = self.client.patch(
+            f"/api/users/{self.admin.pk}/",
+            {"role": User.Roles.CREATOR},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("last active admin", str(res.data).lower())
+
+    def test_soft_delete(self):
+        self._auth(self.admin)
+        res = self.client.delete(f"/api/users/{self.creator.pk}/")
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.creator.refresh_from_db()
+        self.assertFalse(self.creator.is_active)

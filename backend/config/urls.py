@@ -13,6 +13,7 @@ urlpatterns = [
     path("api/auth/password-reset", PasswordResetRequestView.as_view(), name="password_reset_request"),
     path("api/auth/password-reset/confirm", PasswordResetConfirmView.as_view(), name="password_reset_confirm"),
     path("api/auth/", include("apps.users.urls")),
+    path("api/users/", include("apps.users.management_urls")),
     path("api/ai/", include("apps.llm.urls")),
     path("api/", include("apps.forms.urls")),
 ]

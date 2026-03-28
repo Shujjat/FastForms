@@ -922,3 +922,35 @@ button.gf-tab:hover {
   width: auto;
   flex-shrink: 0;
 }
+
+/* Admin user management table */
+.admin-user-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+.admin-user-table th,
+.admin-user-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: top;
+}
+
+.admin-user-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.admin-user-table tbody tr:hover {
+  background: #fafafa;
+}

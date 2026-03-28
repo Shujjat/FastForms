@@ -14,7 +14,8 @@ Thank you for your interest in contributing. By submitting a pull request or oth
 1. **Backend:** `cd backend`, create a virtualenv, `pip install -r requirements.txt`, copy `.env.example` to `.env`, run `python manage.py migrate`.
 2. **Frontend:** `cd frontend`, `npm install`.
 3. **Tests:** From `backend` with `DB_ENGINE=sqlite` (or your dev DB): `python -m pytest`. Frontend: `npm run build`.
-4. **Optional AI (Ollama):** To work on `/api/ai/*` or the designer “AI form draft” flow, install [Ollama](https://ollama.com), pull a model (e.g. `ollama pull llama3.2`), and set the variables documented in `backend/.env.example` and [Docs/Ollama_AI_Integration_Plan.md](Docs/Ollama_AI_Integration_Plan.md). AI calls are server-side only; nothing is required in the frontend `.env` for basic use.
+4. **Optional AI (Ollama):** To work on `/api/ai/*` or the designer “AI form draft” flow, install [Ollama](https://ollama.com), pull a model listed by `ollama list`, and set `OLLAMA_MODEL` to match. See `backend/.env.example` and [Docs/Ollama_AI_Integration_Plan.md](Docs/Ollama_AI_Integration_Plan.md). AI calls are server-side only.
+5. **Windows auto-start:** [Docs/WINDOWS_TASK_SCHEDULER.md](Docs/WINDOWS_TASK_SCHEDULER.md) (optional; production servers should still follow [DEPLOYMENT.md](Docs/DEPLOYMENT.md)).
 
 ## Pull requests
 

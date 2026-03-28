@@ -10,11 +10,12 @@ FastForms is open source under the [MIT License](LICENSE). It is a production-or
 - Response listing and basic analytics
 - Export APIs and Celery-based notification task
 - React frontend for core flows
+- Admin user management UI (`/admin/users`) for accounts with role **admin** or Django **superuser**
 
 ## Project Structure
 - `backend/` Django + DRF API
 - `frontend/` React (Vite) app
-- `Docs/` SRS, roadmap, [ExecutionPlan.md](Docs/ExecutionPlan.md), [DEPLOYMENT.md](Docs/DEPLOYMENT.md), [CONTRIBUTING.md](Docs/CONTRIBUTING.md), [RUN_ON_NEW_SYSTEM.md](Docs/RUN_ON_NEW_SYSTEM.md), [SECURITY.md](Docs/SECURITY.md), [CELERY.md](Docs/CELERY.md), [Ollama_AI_Integration_Plan.md](Docs/Ollama_AI_Integration_Plan.md) (optional local AI)
+- `Docs/` SRS, roadmap, [ExecutionPlan.md](Docs/ExecutionPlan.md), [DEPLOYMENT.md](Docs/DEPLOYMENT.md), [CONTRIBUTING.md](Docs/CONTRIBUTING.md), [RUN_ON_NEW_SYSTEM.md](Docs/RUN_ON_NEW_SYSTEM.md), [WINDOWS_TASK_SCHEDULER.md](Docs/WINDOWS_TASK_SCHEDULER.md) (optional auto-start on Windows), [SECURITY.md](Docs/SECURITY.md), [CELERY.md](Docs/CELERY.md), [Ollama_AI_Integration_Plan.md](Docs/Ollama_AI_Integration_Plan.md) (optional local AI)
 
 ## Open source and collaboration
 
@@ -59,7 +60,7 @@ From repository root: `docker compose up --build`
 
 ## Production (summary)
 
-Full checklist and hosting patterns are in [Docs/DEPLOYMENT.md](Docs/DEPLOYMENT.md). In short:
+Full checklist and hosting patterns are in [Docs/DEPLOYMENT.md](Docs/DEPLOYMENT.md). To auto-start FastForms on a Windows server folder (for example after reboot), see [Docs/WINDOWS_TASK_SCHEDULER.md](Docs/WINDOWS_TASK_SCHEDULER.md). In short:
 
 - Set `DEBUG=False`, a strong `DJANGO_SECRET_KEY`, and `ALLOWED_HOSTS` to your hostnames.
 - Set `CORS_ALLOWED_ORIGINS` to your frontend origin(s) (comma-separated).
@@ -68,6 +69,8 @@ Full checklist and hosting patterns are in [Docs/DEPLOYMENT.md](Docs/DEPLOYMENT.
 - Run Celery workers if you use async tasks with `CELERY_TASK_ALWAYS_EAGER=False`.
 
 ## Key API Endpoints
+- `GET/POST /api/users/` — **admin or superuser only**: list users (`?search=`, `?role=`, `?is_active=true|false`, pagination); create user with password and role
+- `GET/PATCH/DELETE /api/users/{id}/` — **admin or superuser only**: view/update user (role, active, staff, profile, optional new password); `DELETE` soft-deactivates the account
 - `POST /api/auth/register` — body: `username`, `email`, `password`, `role` (required); optional: `first_name`, `last_name`, `phone`, `organization`
 - `POST /api/auth/login`
 - `POST /api/auth/google` — body: `credential` (Google ID token JWT), optional `role` (`creator` \| `respondent`)
@@ -85,6 +88,10 @@ Full checklist and hosting patterns are in [Docs/DEPLOYMENT.md](Docs/DEPLOYMENT.
 - `GET /api/forms/{id}/export?export_format=csv|json`
 - `GET /api/ai/health` — `{ "llm_enabled": true|false }` (optional; requires server-side Ollama config)
 - `POST /api/ai/suggest_form` — `{ "prompt": "..." }` — AI-assisted form draft (creators/admins only when LLM is configured)
+
+### Admin / user management
+
+The SPA route **`/admin/users`** (and `GET/POST /api/users/`, `GET/PATCH/DELETE /api/users/{id}/`) are available only to users with application role **`admin`** or to Django **superusers**. Public registration does not offer the `admin` role. Grant access by running `python manage.py createsuperuser` and/or editing the user in Django admin (`/admin/`) to set **Role** to `admin` or to enable **Superuser status**.
 
 ## Testing
 - Backend unittest-style: `python manage.py test`

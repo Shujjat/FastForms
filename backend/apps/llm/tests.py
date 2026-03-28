@@ -1,5 +1,5 @@
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from rest_framework import status
@@ -64,3 +64,16 @@ class LlmApiTests(APITestCase):
         self._login()
         res = self.client.post("/api/ai/suggest_form", {"prompt": "Hello"}, format="json")
         self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    @override_settings(LLM_PROVIDER="ollama", OLLAMA_MODEL="missing-model:tag")
+    @patch("apps.llm.client.requests.post")
+    def test_suggest_form_clear_detail_when_ollama_model_missing(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        mock_resp.json.return_value = {"error": {"message": "model 'missing-model:tag' not found"}}
+        mock_post.return_value = mock_resp
+        self._login()
+        res = self.client.post("/api/ai/suggest_form", {"prompt": "Hello"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("Ollama does not have model", res.data["detail"])
+        self.assertIn("ollama list", res.data["detail"])

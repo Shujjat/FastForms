@@ -1,6 +1,6 @@
 # FastForms — Deployment
 
-This guide describes how to run FastForms in production. For a **fresh developer machine** (Windows, local PostgreSQL), see [RUN_ON_NEW_SYSTEM.md](RUN_ON_NEW_SYSTEM.md). For **security** (HTTPS, CORS, secrets), see [SECURITY.md](SECURITY.md). For **Celery** workers and queues, see [CELERY.md](CELERY.md).
+This guide describes how to run FastForms in production. For a **fresh developer machine** (Windows, local PostgreSQL), see [RUN_ON_NEW_SYSTEM.md](RUN_ON_NEW_SYSTEM.md). For **auto-start on Windows** (Task Scheduler), see [WINDOWS_TASK_SCHEDULER.md](WINDOWS_TASK_SCHEDULER.md). For **security** (HTTPS, CORS, secrets), see [SECURITY.md](SECURITY.md). For **Celery** workers and queues, see [CELERY.md](CELERY.md).
 
 ## Architecture (typical production)
 
@@ -23,6 +23,8 @@ This guide describes how to run FastForms in production. For a **fresh developer
 9. **Celery:** Redis reachable; `CELERY_TASK_ALWAYS_EAGER=False`; run at least one Celery worker process.
 10. **Database:** Backups, patches, and restricted network access for PostgreSQL.
 11. **Optional LLM (Ollama):** If you enable `LLM_PROVIDER=ollama`, ensure the API can reach Ollama (often same host or private network), set timeouts appropriately, and treat `OLLAMA_API_KEY` as a secret. See [Ollama_AI_Integration_Plan.md](Ollama_AI_Integration_Plan.md) and [SECURITY.md](SECURITY.md).
+12. **User administration:** Application **admins** and **superusers** can manage accounts via `/api/users/` and the SPA at `/admin/users`. Protect who receives the `admin` role; public registration does not assign it. See [SECURITY.md](SECURITY.md).
+13. **Windows services:** For a simple always-on host using `runserver` + Vite, you can schedule `Run-FastForms-Scheduled.bat`; for public production, still prefer static frontend + WSGI behind HTTPS as above. See [WINDOWS_TASK_SCHEDULER.md](WINDOWS_TASK_SCHEDULER.md).
 
 ## Backend environment (production)
 

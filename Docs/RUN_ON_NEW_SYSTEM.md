@@ -110,6 +110,11 @@ Frontend URL: `http://127.0.0.1:5173`
 - All form actions require login.
 - Respondents cannot design forms.
 - Analysts/respondents cannot access form designer actions.
+- **User management** (`/admin/users` in the SPA, and `/api/users/`) is limited to application **admin** role or Django **superusers**. Grant those in Django admin (`/admin/`) or via `createsuperuser`; see the README “Admin / user management” section.
+
+## 8a) Optional: Auto-start with Task Scheduler
+
+To start backend + frontend automatically after reboot (e.g. install under `J:\FastForms\`), use **[WINDOWS_TASK_SCHEDULER.md](WINDOWS_TASK_SCHEDULER.md)** and `Run-FastForms-Scheduled.bat`.
 
 ## 9) Optional: Run Tests
 
@@ -132,13 +137,13 @@ npm run build
 Form **AI draft** features call the backend, which can use a local [Ollama](https://ollama.com) server (OpenAI-compatible API).
 
 1. Install Ollama for your OS and start it (default `http://127.0.0.1:11434`).
-2. Pull a model, for example: `ollama pull llama3.2`
-3. In `backend/.env`, set (uncomment/adjust as in `backend/.env.example`):
+2. Pull a model, for example: `ollama pull llama3.2`, or pick an installed tag from `ollama list` (e.g. `qwen3:latest`).
+3. In `backend/.env`, set (uncomment/adjust as in `backend/.env.example`). **`OLLAMA_MODEL` must match an installed model name exactly.**
 
    ```env
    LLM_PROVIDER=ollama
    OLLAMA_BASE_URL=http://127.0.0.1:11434
-   OLLAMA_MODEL=llama3.2
+   OLLAMA_MODEL=qwen3:latest
    ```
 
 4. Restart the Django server. In the form designer, use **AI form draft** when logged in as a creator/admin.

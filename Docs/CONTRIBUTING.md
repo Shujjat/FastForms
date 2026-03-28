@@ -33,9 +33,10 @@ For **security vulnerabilities**, do not open a public issue; follow [SECURITY.m
 
 ## Where things live
 
-- **`backend/`** — Django project (`config/`), apps (auth, forms, etc.), API serializers/views, tests.
+- **`backend/`** — Django project (`config/`), apps (auth, forms, `llm`, etc.), API serializers/views, tests.
 - **`frontend/`** — React + Vite SPA, pages, API client, env via `VITE_*`.
-- **`Docs/`** — Design notes, deployment, security, Celery.
+- **`scripts/`** — Windows helpers (`start-backend.bat`, `start-frontend.bat`, `start-fastforms-scheduled.bat` for Task Scheduler).
+- **`Docs/`** — Design notes, deployment, security, Celery, [WINDOWS_TASK_SCHEDULER.md](WINDOWS_TASK_SCHEDULER.md).
 
 ## Tests and checks
 

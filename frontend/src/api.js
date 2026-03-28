@@ -6,6 +6,19 @@ export const api = axios.create({
   baseURL: API_BASE,
 });
 
+/** Turn axios/DRF errors into a single string for UI messages. */
+export function formatApiError(err) {
+  const d = err?.response?.data;
+  if (d == null) return err?.message || String(err);
+  if (typeof d.detail === "string") return d.detail;
+  if (Array.isArray(d.detail)) {
+    return d.detail.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ");
+  }
+  if (typeof d.detail === "object" && d.detail !== null) return JSON.stringify(d.detail);
+  if (typeof d === "object") return JSON.stringify(d);
+  return String(d);
+}
+
 export function setAuthToken(token) {
   if (token) {
     api.defaults.headers.common.Authorization = `Bearer ${token}`;

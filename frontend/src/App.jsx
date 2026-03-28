@@ -1,7 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { api, downloadFormExport, setAuthToken, setRefreshToken } from "./api";
+import { api, downloadFormExport, formatApiError, setAuthToken, setRefreshToken } from "./api";
+
+const ROLE_OPTIONS = [
+  { value: "admin", label: "Admin" },
+  { value: "creator", label: "Creator" },
+  { value: "analyst", label: "Analyst" },
+  { value: "respondent", label: "Respondent" },
+];
 import { GoogleSignInButton } from "./GoogleSignInButton";
 
 /** Local datetime-local value from ISO string (browser timezone). */
@@ -236,23 +243,33 @@ function mergeValidationPatch(prev, patch) {
 
 // --- Auth Context ---
 
-const AuthContext = createContext({ isAuthed: false, userRole: null, refreshAuth: async () => {} });
+const AuthContext = createContext({
+  isAuthed: false,
+  userRole: null,
+  user: null,
+  isAdminUser: false,
+  refreshAuth: async () => {},
+});
 
 function AuthProvider({ children }) {
   const [isAuthed, setIsAuthed] = useState(Boolean(localStorage.getItem("accessToken")));
   const [userRole, setUserRole] = useState(null);
+  const [user, setUser] = useState(null);
   const refreshAuth = useCallback(async () => {
     const authed = Boolean(localStorage.getItem("accessToken"));
     setIsAuthed(authed);
     if (!authed) {
       setUserRole(null);
+      setUser(null);
       return;
     }
     try {
       const { data } = await api.get("/api/auth/me");
       setUserRole(data.role || null);
+      setUser(data);
     } catch {
       setUserRole(null);
+      setUser(null);
     }
   }, []);
   useEffect(() => {
@@ -263,7 +280,12 @@ function AuthProvider({ children }) {
   useEffect(() => {
     refreshAuth();
   }, [refreshAuth]);
-  return <AuthContext.Provider value={{ isAuthed, userRole, refreshAuth }}>{children}</AuthContext.Provider>;
+  const isAdminUser = userRole === "admin" || Boolean(user?.is_superuser);
+  return (
+    <AuthContext.Provider value={{ isAuthed, userRole, user, isAdminUser, refreshAuth }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 function useAuth() {
@@ -279,10 +301,17 @@ function ProtectedRoute({ children, requireDesignerRole = false }) {
   return children;
 }
 
+function AdminRoute({ children }) {
+  const { isAuthed, isAdminUser } = useAuth();
+  if (!isAuthed) return <Navigate to="/login" replace />;
+  if (!isAdminUser) return <Navigate to="/" replace />;
+  return children;
+}
+
 // --- Layout ---
 
 function Layout({ children }) {
-  const { isAuthed, refreshAuth } = useAuth();
+  const { isAuthed, isAdminUser, refreshAuth } = useAuth();
   const navigate = useNavigate();
   const logout = () => {
     setAuthToken(null);
@@ -297,6 +326,7 @@ function Layout({ children }) {
         <nav>
           <Link to="/">Forms</Link>
           <Link to="/templates">Templates</Link>
+          {isAuthed && isAdminUser && <Link to="/admin/users">Users</Link>}
           {!isAuthed && <Link to="/register">Register</Link>}
           {!isAuthed && <Link to="/login">Login</Link>}
           {isAuthed && (
@@ -623,6 +653,440 @@ function TemplatesPage() {
         ))}
       </div>
       {items.length === 0 && <p style={{ color: "#9ca3af" }}>No templates loaded.</p>}
+    </Layout>
+  );
+}
+
+// --- Admin: user management ---
+
+function UsersPage() {
+  const { user: currentUser } = useAuth();
+  const [rows, setRows] = useState([]);
+  const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [activeFilter, setActiveFilter] = useState("");
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [newUser, setNewUser] = useState({
+    username: "",
+    email: "",
+    password: "",
+    role: "respondent",
+    first_name: "",
+    last_name: "",
+    phone: "",
+    organization: "",
+    is_active: true,
+    is_staff: false,
+  });
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState(null);
+
+  const load = async (p = page) => {
+    setErr("");
+    try {
+      const params = { page: p };
+      if (search.trim()) params.search = search.trim();
+      if (roleFilter) params.role = roleFilter;
+      if (activeFilter === "true" || activeFilter === "false") params.is_active = activeFilter;
+      const { data } = await api.get("/api/users/", { params });
+      setRows(data.results || []);
+      setCount(data.count ?? 0);
+      setPage(p);
+    } catch (e) {
+      setErr(formatApiError(e));
+      setRows([]);
+    }
+  };
+
+  useEffect(() => {
+    load(1);
+  }, []);
+
+  const totalPages = Math.max(1, Math.ceil(count / 20));
+
+  const openEdit = (u) => {
+    setEditingId(u.id);
+    setEditDraft({
+      username: u.username,
+      email: u.email,
+      role: u.role,
+      first_name: u.first_name || "",
+      last_name: u.last_name || "",
+      phone: u.phone || "",
+      organization: u.organization || "",
+      is_active: u.is_active,
+      is_staff: u.is_staff,
+      password: "",
+    });
+    setMsg("");
+    setErr("");
+  };
+
+  const saveEdit = async () => {
+    if (!editDraft || editingId == null) return;
+    setErr("");
+    try {
+      const payload = { ...editDraft };
+      if (!payload.password || !payload.password.trim()) delete payload.password;
+      await api.patch(`/api/users/${editingId}/`, payload);
+      setEditingId(null);
+      setEditDraft(null);
+      setMsg("User updated.");
+      await load(page);
+    } catch (e) {
+      setErr(formatApiError(e));
+    }
+  };
+
+  const createUser = async (e) => {
+    e.preventDefault();
+    setErr("");
+    try {
+      const payload = { ...newUser };
+      if (!currentUser?.is_superuser) delete payload.is_staff;
+      await api.post("/api/users/", payload);
+      setMsg("User created.");
+      setCreating(false);
+      setNewUser({
+        username: "",
+        email: "",
+        password: "",
+        role: "respondent",
+        first_name: "",
+        last_name: "",
+        phone: "",
+        organization: "",
+        is_active: true,
+        is_staff: false,
+      });
+      await load(1);
+    } catch (e) {
+      setErr(formatApiError(e));
+    }
+  };
+
+  const deactivate = async (u) => {
+    if (!window.confirm(`Deactivate ${u.username}? They will not be able to sign in.`)) return;
+    setErr("");
+    try {
+      await api.delete(`/api/users/${u.id}/`);
+      setMsg("User deactivated.");
+      await load(page);
+    } catch (e) {
+      setErr(formatApiError(e));
+    }
+  };
+
+  return (
+    <Layout>
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        <div className="row" style={{ marginBottom: 16, alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <h2 style={{ margin: 0, flex: 1 }}>User management</h2>
+          <button type="button" className="btn-primary btn-sm" onClick={() => { setCreating(!creating); setErr(""); }}>
+            {creating ? "Close" : "Add user"}
+          </button>
+        </div>
+        <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8 }}>
+          Search and filter accounts, assign roles, activate or deactivate users, and set passwords. Only application admins and superusers see this page.
+        </p>
+        {msg && <p className="msg">{msg}</p>}
+        {err && <p className="msg msg-error">{err}</p>}
+
+        {creating && (
+          <div className="card" style={{ marginBottom: 20 }}>
+            <h3 style={{ marginTop: 0 }}>New user</h3>
+            <form onSubmit={createUser} className="stack" style={{ maxWidth: 480 }}>
+              <input
+                required
+                placeholder="Username"
+                value={newUser.username}
+                onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+              />
+              <input
+                required
+                type="email"
+                placeholder="Email"
+                value={newUser.email}
+                onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+              />
+              <input
+                required
+                type="password"
+                minLength={8}
+                placeholder="Password (min 8 characters)"
+                value={newUser.password}
+                onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+              />
+              <label style={{ fontSize: 13 }}>
+                Role
+                <select
+                  value={newUser.role}
+                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                  style={{ display: "block", marginTop: 6, width: "100%", padding: "8px" }}
+                >
+                  {ROLE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <input
+                placeholder="First name"
+                value={newUser.first_name}
+                onChange={(e) => setNewUser({ ...newUser, first_name: e.target.value })}
+              />
+              <input
+                placeholder="Last name"
+                value={newUser.last_name}
+                onChange={(e) => setNewUser({ ...newUser, last_name: e.target.value })}
+              />
+              <input
+                placeholder="Phone (optional)"
+                value={newUser.phone}
+                onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
+              />
+              <input
+                placeholder="Organization (optional)"
+                value={newUser.organization}
+                onChange={(e) => setNewUser({ ...newUser, organization: e.target.value })}
+              />
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={newUser.is_active}
+                  onChange={(e) => setNewUser({ ...newUser, is_active: e.target.checked })}
+                />
+                Active
+              </label>
+              {currentUser?.is_superuser && (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+                  <input
+                    type="checkbox"
+                    checked={newUser.is_staff}
+                    onChange={(e) => setNewUser({ ...newUser, is_staff: e.target.checked })}
+                  />
+                  Django staff (can access /admin/)
+                </label>
+              )}
+              <button type="submit" className="btn-primary">
+                Create user
+              </button>
+            </form>
+          </div>
+        )}
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row" style={{ flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+            <input
+              placeholder="Search name, email, username…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ width: 220, padding: "8px 10px" }}
+            />
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} style={{ padding: "8px 10px" }}>
+              <option value="">All roles</option>
+              {ROLE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={activeFilter}
+              onChange={(e) => setActiveFilter(e.target.value)}
+              style={{ padding: "8px 10px" }}
+            >
+              <option value="">Active + inactive</option>
+              <option value="true">Active only</option>
+              <option value="false">Inactive only</option>
+            </select>
+            <button type="button" className="btn-secondary btn-sm" onClick={() => load(1)}>
+              Apply filters
+            </button>
+          </div>
+        </div>
+
+        <div style={{ overflowX: "auto" }}>
+          <table className="admin-user-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Joined</th>
+                <th>Last login</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((u) => (
+                <tr key={u.id}>
+                  <td>
+                    <strong>{u.username}</strong>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>{u.email}</div>
+                    {u.is_staff && (
+                      <span style={{ fontSize: 11, color: "#7c3aed" }}>staff</span>
+                    )}
+                    {u.is_superuser && (
+                      <span style={{ fontSize: 11, color: "#b45309" }}> superuser</span>
+                    )}
+                  </td>
+                  <td>{u.role}</td>
+                  <td>{u.is_active ? "Active" : "Inactive"}</td>
+                  <td style={{ fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+                    {u.date_joined ? new Date(u.date_joined).toLocaleString() : "—"}
+                  </td>
+                  <td style={{ fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+                    {u.last_login ? new Date(u.last_login).toLocaleString() : "—"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <button type="button" className="btn-secondary btn-sm" onClick={() => openEdit(u)}>
+                      Edit
+                    </button>
+                    {u.id !== currentUser?.id && (
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        style={{ marginLeft: 6 }}
+                        onClick={() => deactivate(u)}
+                      >
+                        Deactivate
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="row" style={{ marginTop: 16, gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              className="btn-secondary btn-sm"
+              disabled={page <= 1}
+              onClick={() => load(page - 1)}
+            >
+              Previous
+            </button>
+            <span style={{ fontSize: 14, color: "#6b7280" }}>
+              Page {page} of {totalPages}
+            </span>
+            <button
+              type="button"
+              className="btn-secondary btn-sm"
+              disabled={page >= totalPages}
+              onClick={() => load(page + 1)}
+            >
+              Next
+            </button>
+          </div>
+        )}
+
+        {editingId != null && editDraft && (
+          <div
+            className="card"
+            style={{
+              marginTop: 24,
+              position: "sticky",
+              bottom: 0,
+              border: "2px solid #6366f1",
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>Edit user #{editingId}</h3>
+            <div className="stack" style={{ maxWidth: 480 }}>
+              <input
+                required
+                value={editDraft.username}
+                onChange={(e) => setEditDraft({ ...editDraft, username: e.target.value })}
+              />
+              <input
+                required
+                type="email"
+                value={editDraft.email}
+                onChange={(e) => setEditDraft({ ...editDraft, email: e.target.value })}
+              />
+              <input
+                type="password"
+                placeholder="New password (leave blank to keep)"
+                minLength={8}
+                value={editDraft.password}
+                onChange={(e) => setEditDraft({ ...editDraft, password: e.target.value })}
+              />
+              <select
+                value={editDraft.role}
+                onChange={(e) => setEditDraft({ ...editDraft, role: e.target.value })}
+                style={{ padding: "8px 10px" }}
+              >
+                {ROLE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                placeholder="First name"
+                value={editDraft.first_name}
+                onChange={(e) => setEditDraft({ ...editDraft, first_name: e.target.value })}
+              />
+              <input
+                placeholder="Last name"
+                value={editDraft.last_name}
+                onChange={(e) => setEditDraft({ ...editDraft, last_name: e.target.value })}
+              />
+              <input
+                placeholder="Phone"
+                value={editDraft.phone}
+                onChange={(e) => setEditDraft({ ...editDraft, phone: e.target.value })}
+              />
+              <input
+                placeholder="Organization"
+                value={editDraft.organization}
+                onChange={(e) => setEditDraft({ ...editDraft, organization: e.target.value })}
+              />
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={editDraft.is_active}
+                  onChange={(e) => setEditDraft({ ...editDraft, is_active: e.target.checked })}
+                />
+                Active
+              </label>
+              {currentUser?.is_superuser && (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+                  <input
+                    type="checkbox"
+                    checked={editDraft.is_staff}
+                    onChange={(e) => setEditDraft({ ...editDraft, is_staff: e.target.checked })}
+                  />
+                  Django staff
+                </label>
+              )}
+              <div className="row" style={{ gap: 8 }}>
+                <button type="button" className="btn-primary" onClick={saveEdit}>
+                  Save changes
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => {
+                    setEditingId(null);
+                    setEditDraft(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </Layout>
   );
 }
@@ -1758,8 +2222,7 @@ function FormEditorPage() {
       setDesignerMsg("AI draft applied — review and edit questions below.");
       setTimeout(() => setDesignerMsg(""), 5000);
     } catch (err) {
-      const d = err.response?.data;
-      setDesignerErr(d?.detail || JSON.stringify(d || err.message));
+      setDesignerErr(formatApiError(err));
     } finally {
       setAiBusy(false);
     }
@@ -1917,7 +2380,8 @@ function FormEditorPage() {
                     placeholder="e.g. A registration form for a weekend workshop with name, email, dietary preferences, and session choice."
                     value={aiPrompt}
                     onChange={(e) => setAiPrompt(e.target.value)}
-                    disabled={!aiEnabled || aiBusy}
+                    disabled={aiBusy}
+                    aria-label="Describe the form for AI draft"
                     style={{ width: "100%", maxWidth: 560, fontSize: 13, padding: 8, borderRadius: 6, border: "1px solid #d1d5db" }}
                   />
                   <div style={{ marginTop: 8 }}>
@@ -2506,6 +2970,7 @@ export default function App() {
         <Route path="/share/:formId" element={<ProtectedRoute><FormSharePage /></ProtectedRoute>} />
         <Route path="/fill/:formId" element={<ProtectedRoute><FillFormPage /></ProtectedRoute>} />
         <Route path="/analytics/:formId" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>
