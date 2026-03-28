@@ -13,14 +13,14 @@ This file expands on the short checklist in the root [CONTRIBUTING.md](../CONTRI
 
 ## Maintainer contact
 
-Use these for questions that do not fit a public GitHub issue (e.g. coordination, private inquiries):
+Use these for questions that do not fit a public GitHub issue (e.g. coordination, private inquiries). Same details work for **GitHub** and **WhatsApp** outreach.
 
 | Channel | Detail |
 |--------|--------|
-| **GitHub (this project)** | [github.com/Shujjat/FastForms](https://github.com/Shujjat/FastForms) — issues and pull requests |
-| **GitHub (author)** | [github.com/Shujjat/NeuroGraph](https://github.com/Shujjat/NeuroGraph) |
-| **Email** | shujjat.shirafat@gmail.com |
-| **WhatsApp** | 03364540037 |
+| 🔗 **GitHub (this project)** | [github.com/Shujjat/FastForms](https://github.com/Shujjat/FastForms) — issues and pull requests |
+| 🔗 **GitHub (author)** | [github.com/Shujjat/NeuroGraph](https://github.com/Shujjat/NeuroGraph) |
+| 📧 **Email** | [shujjat.shirafat@gmail.com](mailto:shujjat.shirafat@gmail.com) |
+| 📱 **WhatsApp** | [03364540037](https://wa.me/923364540037) — international format `+92 336 4540037` |
 
 For **security vulnerabilities**, do not open a public issue; follow [SECURITY.md](SECURITY.md) (private reporting).
 

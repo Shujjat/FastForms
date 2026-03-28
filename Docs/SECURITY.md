@@ -57,6 +57,6 @@ When `DEBUG=False`, the app enables HTTPS-related settings (`SECURE_SSL_REDIRECT
 Please report security issues **privately** instead of using public issues, so they can be addressed before disclosure.
 
 - Prefer [GitHub Security Advisories](https://github.com/Shujjat/FastForms/security/advisories/new) if enabled on the repository, or
-- Contact the maintainers with enough detail to reproduce (affected version, steps, impact).
+- Contact the maintainers with enough detail to reproduce (affected version, steps, impact). Maintainer email and WhatsApp are listed in [CONTRIBUTING.md](CONTRIBUTING.md) under **Maintainer contact**.
 
 Do not include live credentials or production data in reports.

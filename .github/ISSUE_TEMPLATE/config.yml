@@ -4,3 +4,12 @@ contact_links:
   - name: Security issue
     url: https://github.com/Shujjat/FastForms/blob/main/Docs/SECURITY.md
     about: Please report security vulnerabilities privately (see SECURITY.md).
+  - name: Author on GitHub (NeuroGraph)
+    url: https://github.com/Shujjat/NeuroGraph
+    about: Maintainer’s other open-source work.
+  - name: Email the maintainer
+    url: mailto:shujjat.shirafat@gmail.com
+    about: For questions that do not fit a public issue (use responsibly).
+  - name: WhatsApp
+    url: https://wa.me/923364540037
+    about: Same number as 03364540037 (Pakistan).

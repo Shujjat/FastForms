@@ -25,6 +25,15 @@ FastForms is open source under the [MIT License](LICENSE). It is a production-or
 - **Security:** Report vulnerabilities privately — [Docs/SECURITY.md](Docs/SECURITY.md).
 - **CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs backend migrations + pytest (SQLite) and `npm run build` on pushes and pull requests.
 
+### Contact (maintainer)
+
+| | |
+|--|--|
+| 🔗 **GitHub (this project)** | [github.com/Shujjat/FastForms](https://github.com/Shujjat/FastForms) |
+| 🔗 **GitHub (author)** | [github.com/Shujjat/NeuroGraph](https://github.com/Shujjat/NeuroGraph) |
+| 📧 **Email** | [shujjat.shirafat@gmail.com](mailto:shujjat.shirafat@gmail.com) |
+| 📱 **WhatsApp** | [+92 336 4540037](https://wa.me/923364540037) *(same as 03364540037)* |
+
 ## Run Locally (primary workflow)
 
 ### Backend

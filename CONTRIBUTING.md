@@ -27,4 +27,13 @@ Thank you for your interest in contributing. By submitting a pull request or oth
 
 Open a [GitHub issue](https://github.com/Shujjat/FastForms/issues) for bugs or feature discussion. Use the issue templates when they fit.
 
-For maintainer contact, deployment details, and a fuller contribution guide, see [Docs/CONTRIBUTING.md](Docs/CONTRIBUTING.md).
+## Maintainer contact
+
+| | |
+|--|--|
+| 🔗 **GitHub (this project)** | [github.com/Shujjat/FastForms](https://github.com/Shujjat/FastForms) |
+| 🔗 **GitHub (author)** | [github.com/Shujjat/NeuroGraph](https://github.com/Shujjat/NeuroGraph) |
+| 📧 **Email** | [shujjat.shirafat@gmail.com](mailto:shujjat.shirafat@gmail.com) |
+| 📱 **WhatsApp** | [+92 336 4540037](https://wa.me/923364540037) |
+
+For deployment details and a fuller guide, see [Docs/CONTRIBUTING.md](Docs/CONTRIBUTING.md).
