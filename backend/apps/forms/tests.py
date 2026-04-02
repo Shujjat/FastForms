@@ -181,6 +181,16 @@ class FastFormsApiTests(APITestCase):
             self.assertIn("avatar_url", row)
             self.assertIn("display_name", row)
 
+    def test_owner_collaborator_candidates_lists_users(self):
+        self._login("creator1")
+        form_id = self.client.post("/api/forms", {"title": "Cand", "description": ""}, format="json").data["id"]
+        res = self.client.get(f"/api/forms/{form_id}/collaborator_candidates")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("results", res.data)
+        usernames = {r["username"] for r in res.data["results"]}
+        self.assertIn("analyst1", usernames)
+        self.assertNotIn("creator1", usernames)
+
     def test_collaborator_search_short_query_returns_empty(self):
         self._login("creator1")
         form_id = self.client.post("/api/forms", {"title": "Q", "description": ""}, format="json").data["id"]

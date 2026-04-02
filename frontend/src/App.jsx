@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { api, downloadFormExport, formatApiError, setAuthToken, setRefreshToken } from "./api";
@@ -1684,17 +1684,16 @@ function ThemeAppearanceControls({ formId, form, onReload, onBanner }) {
   );
 }
 
-// --- Collaborators (owner): search, avatars, multi-select ---
+// --- Collaborators (owner): list users with checkboxes + role ---
 
 function CollaboratorPicker({ formId, onReload, onBanner }) {
   const [list, setList] = useState([]);
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [candidates, setCandidates] = useState([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(true);
+  const [filterQ, setFilterQ] = useState("");
   const [selected, setSelected] = useState(() => new Map());
   const [role, setRole] = useState("viewer");
   const [adding, setAdding] = useState(false);
-  const debounceRef = useRef(null);
 
   const loadList = useCallback(async () => {
     try {
@@ -1705,33 +1704,34 @@ function CollaboratorPicker({ formId, onReload, onBanner }) {
     }
   }, [formId]);
 
+  const loadCandidates = useCallback(async () => {
+    setCandidatesLoading(true);
+    try {
+      const { data } = await api.get(`/api/forms/${formId}/collaborator_candidates`);
+      setCandidates(Array.isArray(data?.results) ? data.results : []);
+    } catch {
+      setCandidates([]);
+    } finally {
+      setCandidatesLoading(false);
+    }
+  }, [formId]);
+
   useEffect(() => {
     loadList();
   }, [loadList]);
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const trimmed = q.trim();
-    if (trimmed.length < 2) {
-      setResults([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const { data } = await api.get(`/api/forms/${formId}/collaborator_search`, { params: { q: trimmed } });
-        setResults(Array.isArray(data?.results) ? data.results : []);
-      } catch {
-        setResults([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 320);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [q, formId]);
+    loadCandidates();
+  }, [loadCandidates]);
+
+  const filteredCandidates = useMemo(() => {
+    const q = filterQ.trim().toLowerCase();
+    if (!q) return candidates;
+    return candidates.filter((row) => {
+      const hay = `${row.username} ${row.email || ""} ${row.display_name || ""} ${row.first_name || ""} ${row.last_name || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [candidates, filterQ]);
 
   const toggleRow = (row) => {
     setSelected((prev) => {
@@ -1750,13 +1750,13 @@ function CollaboratorPicker({ formId, onReload, onBanner }) {
         await api.post(`/api/forms/${formId}/collaborators`, { username: row.username, role });
       }
       setSelected(new Map());
-      setQ("");
-      setResults([]);
+      setFilterQ("");
       await loadList();
+      await loadCandidates();
       await onReload();
       onBanner?.("Collaborator(s) added.", false);
     } catch (err) {
-      onBanner?.(err.response?.data?.detail || JSON.stringify(err.response?.data || err.message), true);
+      onBanner?.(formatApiError(err), true);
     } finally {
       setAdding(false);
     }
@@ -1782,24 +1782,28 @@ function CollaboratorPicker({ formId, onReload, onBanner }) {
         </div>
       )}
 
-      <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 8px" }}>Add collaborators</p>
-      <div className="gf-collab-search-wrap">
+      <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 8px" }}>Assign collaborators</p>
+      <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 8px" }}>
+        Select users below. Use the filter to narrow the list. Up to 200 users are listed (excluding you and people already on this form).
+      </p>
+
+      <div className="gf-collab-candidate-wrap">
         <input
           className="gf-collab-search-input"
           type="search"
           autoComplete="off"
-          placeholder="Search by name, username, or email…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          aria-label="Search users to add as collaborators"
+          placeholder="Filter list by name, username, or email…"
+          value={filterQ}
+          onChange={(e) => setFilterQ(e.target.value)}
+          aria-label="Filter users"
         />
-        {loading && <div className="gf-collab-search-hint">Searching…</div>}
-        {!loading && q.trim().length > 0 && q.trim().length < 2 && (
-          <div className="gf-collab-search-hint">Type at least 2 characters</div>
+        {candidatesLoading && <div className="gf-collab-search-hint">Loading users…</div>}
+        {!candidatesLoading && candidates.length === 0 && (
+          <div className="gf-collab-search-hint">No other users to add. Register more accounts or check with your admin.</div>
         )}
-        {results.length > 0 && (
-          <div className="gf-collab-dropdown" role="listbox">
-            {results.map((row) => {
+        {!candidatesLoading && filteredCandidates.length > 0 && (
+          <div className="gf-collab-candidate-list" role="list">
+            {filteredCandidates.map((row) => {
               const checked = selected.has(row.id);
               return (
                 <label key={row.id} className={`gf-collab-row${checked ? " is-selected" : ""}`}>
@@ -1807,12 +1811,15 @@ function CollaboratorPicker({ formId, onReload, onBanner }) {
                   <img className="gf-collab-avatar" src={row.avatar_url} alt="" width={40} height={40} />
                   <div className="gf-collab-row-text">
                     <span className="gf-collab-name">{row.display_name || row.username}</span>
-                    <span className="gf-collab-sub">{row.email}</span>
+                    <span className="gf-collab-sub">{row.email || row.username}</span>
                   </div>
                 </label>
               );
             })}
           </div>
+        )}
+        {!candidatesLoading && candidates.length > 0 && filteredCandidates.length === 0 && (
+          <div className="gf-collab-search-hint">No users match this filter.</div>
         )}
       </div>
 
@@ -2159,7 +2166,11 @@ function FormEditorPage() {
   const [saving, setSaving] = useState(false);
   const [designerMsg, setDesignerMsg] = useState("");
   const [designerErr, setDesignerErr] = useState("");
+  const [designerErrTimeout, setDesignerErrTimeout] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiHealthLoading, setAiHealthLoading] = useState(true);
+  const [aiOllamaModel, setAiOllamaModel] = useState("");
+  const [aiOllamaTimeoutSec, setAiOllamaTimeoutSec] = useState(300);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const navigate = useNavigate();
@@ -2183,13 +2194,30 @@ function FormEditorPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setAiHealthLoading(true);
     api
       .get("/api/ai/health")
       .then(({ data }) => {
-        if (!cancelled) setAiEnabled(!!data.llm_enabled);
+        if (cancelled) return;
+        setAiEnabled(!!data.llm_enabled);
+        if (data.llm_enabled) {
+          setAiOllamaModel(typeof data.ollama_model === "string" ? data.ollama_model : "");
+          const t = data.ollama_timeout_sec;
+          setAiOllamaTimeoutSec(typeof t === "number" && t > 0 ? t : 300);
+        } else {
+          setAiOllamaModel("");
+          setAiOllamaTimeoutSec(300);
+        }
       })
       .catch(() => {
-        if (!cancelled) setAiEnabled(false);
+        if (!cancelled) {
+          setAiEnabled(false);
+          setAiOllamaModel("");
+          setAiOllamaTimeoutSec(300);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAiHealthLoading(false);
       });
     return () => {
       cancelled = true;
@@ -2204,25 +2232,38 @@ function FormEditorPage() {
     }
     setAiBusy(true);
     setDesignerErr("");
+    setDesignerErrTimeout(false);
+    const suggestTimeoutMs = (Math.max(Number(aiOllamaTimeoutSec) || 300, 60) + 30) * 1000;
     try {
-      const { data } = await api.post("/api/ai/suggest_form", { prompt: p });
+      const { data } = await api.post("/api/ai/suggest_form", { prompt: p }, { timeout: suggestTimeoutMs });
+      const qList = data.questions || [];
       await api.patch(`/api/forms/${formId}`, { title: data.title, description: data.description || "" });
-      for (const q of data.questions || []) {
+      for (const q of qList) {
+        const vRaw = q.validation;
+        const validation =
+          vRaw && typeof vRaw === "object" && !Array.isArray(vRaw) ? { ...vRaw } : {};
         await api.post(`/api/forms/${formId}/questions`, {
           text: q.text || "Question",
           question_type: q.question_type || "short_text",
           required: !!q.required,
           disabled: false,
           options: Array.isArray(q.options) ? q.options : [],
-          validation: {},
+          validation,
         });
       }
       await load();
       setAiPrompt("");
-      setDesignerMsg("AI draft applied — review and edit questions below.");
-      setTimeout(() => setDesignerMsg(""), 5000);
+      const n = qList.length;
+      setDesignerMsg(
+        n === 0
+          ? "Updated title and description from AI. No questions were returned — add some manually or try again."
+          : `Updated title and description · added ${n} question${n === 1 ? "" : "s"}. Review and edit below.`
+      );
+      setTimeout(() => setDesignerMsg(""), 8000);
     } catch (err) {
-      setDesignerErr(formatApiError(err));
+      const msg = formatApiError(err);
+      setDesignerErr(msg);
+      setDesignerErrTimeout(/timeout|did not respond in time|Read timed out|ETIMEDOUT|ECONNABORTED/i.test(msg));
     } finally {
       setAiBusy(false);
     }
@@ -2332,7 +2373,6 @@ function FormEditorPage() {
         style={appearanceToCssVars(form.appearance)}
       >
         {designerMsg && <p className="msg">{designerMsg}</p>}
-        {designerErr && <p className="msg msg-error">{designerErr}</p>}
 
         {editorTab === "questions" && (
           <>
@@ -2370,10 +2410,23 @@ function FormEditorPage() {
               {canUseAi && (
                 <div className="gf-ai-draft" style={{ marginTop: 14 }}>
                   <p style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600, color: "#4c1d95" }}>AI form draft (Ollama)</p>
+                  {aiEnabled && !aiHealthLoading && aiOllamaModel ? (
+                    <p style={{ margin: "0 0 6px", fontSize: 12, color: "#5b21b6" }}>
+                      Model: <strong>{aiOllamaModel}</strong>
+                      {aiOllamaTimeoutSec > 0 ? (
+                        <>
+                          {" "}
+                          · server allows up to {Math.max(1, Math.ceil(aiOllamaTimeoutSec / 60))} min per generation
+                        </>
+                      ) : null}
+                    </p>
+                  ) : null}
                   <p style={{ margin: "0 0 8px", fontSize: 12, color: "#6b7280" }}>
-                    {aiEnabled
-                      ? "Describe the form; we append generated questions to this form and update the title."
-                      : "Enable by setting LLM_PROVIDER=ollama in the backend .env and running Ollama locally (see Docs/Ollama_AI_Integration_Plan.md)."}
+                    {aiHealthLoading
+                      ? "Checking AI status on the server…"
+                      : aiEnabled
+                        ? "Describe the form; we append generated questions and update the title and description."
+                        : "The server reports AI is off, or the health check failed (e.g. wrong API URL or session). You can still click Generate — errors show below. To enable: LLM_PROVIDER=ollama in backend .env, restart Django, and run Ollama."}
                   </p>
                   <textarea
                     rows={3}
@@ -2388,14 +2441,59 @@ function FormEditorPage() {
                     <button
                       type="button"
                       className="btn-primary btn-sm"
-                      disabled={!aiEnabled || aiBusy}
+                      disabled={aiBusy}
                       onClick={applyAiDraft}
                     >
                       {aiBusy ? "Generating…" : "Generate & append questions"}
                     </button>
+                    {aiBusy ? (
+                      <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6b7280", maxWidth: 560 }}>
+                        Running Ollama on your machine — often 1–3+ minutes on CPU, longer the first time while the model loads into memory. Keep this tab open. Exit an interactive <code style={{ fontSize: 11 }}>ollama run</code> window while generating — it competes for the same model.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               )}
+              {designerErr ? (
+                <div
+                  role="alert"
+                  style={{
+                    marginTop: 14,
+                    padding: "12px 14px",
+                    maxWidth: 560,
+                    borderRadius: 8,
+                    border: "1px solid #fecaca",
+                    background: "#fef2f2",
+                  }}
+                >
+                  <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: "#991b1b" }}>Something went wrong</p>
+                  <p className="msg msg-error" style={{ margin: 0, background: "transparent", border: "none", padding: 0, color: "#b91c1c" }}>
+                    {designerErr}
+                  </p>
+                  {designerErrTimeout ? (
+                    <ul
+                      style={{
+                        margin: "10px 0 0",
+                        paddingLeft: 20,
+                        fontSize: 13,
+                        color: "#7f1d1d",
+                        listStyleType: "disc",
+                      }}
+                    >
+                      <li style={{ marginBottom: 6 }}>
+                        Raise <code style={{ fontSize: 12 }}>OLLAMA_TIMEOUT</code> in backend <code style={{ fontSize: 12 }}>.env</code> (try 600), then restart Django.
+                      </li>
+                      <li style={{ marginBottom: 6 }}>
+                        Use a smaller model: <code style={{ fontSize: 12 }}>OLLAMA_MODEL=phi3:latest</code>.
+                      </li>
+                      <li style={{ marginBottom: 6 }}>
+                        Close any interactive <code style={{ fontSize: 12 }}>ollama run</code> session — it blocks or slows API calls.
+                      </li>
+                      <li>Warm the model once, then generate from the app: <code style={{ fontSize: 12 }}>ollama run your-model</code> then exit before clicking Generate.</li>
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <div className="designer-layout">

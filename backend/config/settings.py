@@ -7,7 +7,10 @@ from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+# Local `backend/.env` should win over empty or stale process env (e.g. Windows user
+# variables). Without override=True, an empty LLM_PROVIDER in the environment blocks
+# values from .env and disables /api/ai/* even when .env sets LLM_PROVIDER=ollama.
+load_dotenv(BASE_DIR / ".env", override=True)
 
 DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret-key-please-change-this-to-a-long-random-value")
@@ -177,6 +180,38 @@ GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 # --- LLM (Ollama OpenAI-compatible API) — see Docs/Ollama_AI_Integration_Plan.md ---
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip().lower()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2").strip()
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
+# Use "auto" to pick a general chat model from `GET /api/tags` (prefers qwen/phi/llama over code models).
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "auto").strip()
+# Read timeout for Ollama chat completion (seconds); CPU / large models often need 300s+.
+_raw_ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "300"))
+OLLAMA_TIMEOUT = max(60, min(_raw_ollama_timeout, 7200))
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
+
+# AI/Ollama lines use a tagged formatter; keep django.server so runserver request lines still appear.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "ai_console": {
+            "format": "[%(levelname)s] %(asctime)s %(name)s | %(message)s",
+            "datefmt": "%H:%M:%S",
+        },
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+        "ai_console": {
+            "class": "logging.StreamHandler",
+            "formatter": "ai_console",
+        },
+    },
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "django.server": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "apps.llm": {
+            "handlers": ["ai_console"],
+            "level": "DEBUG" if DEBUG else "WARNING",
+            "propagate": False,
+        },
+    },
+}

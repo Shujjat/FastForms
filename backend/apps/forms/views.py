@@ -69,6 +69,7 @@ class FormViewSet(viewsets.ModelViewSet):
             "invite",
             "duplicate",
             "collaborator_search",
+            "collaborator_candidates",
         }:
             return [permissions.IsAuthenticated(), CanEditForm()]
         return [permissions.IsAuthenticated(), IsOwnerOrReadOnly()]
@@ -186,6 +187,37 @@ class FormViewSet(viewsets.ModelViewSet):
             .exclude(id__in=existing)
             .distinct()[:25]
         )
+        results = []
+        for u in qs:
+            results.append(
+                {
+                    "id": u.id,
+                    "username": u.username,
+                    "email": u.email or "",
+                    "first_name": u.first_name or "",
+                    "last_name": u.last_name or "",
+                    "display_name": (u.get_full_name() or u.username or "").strip(),
+                    "avatar_url": gravatar_url(u.email or ""),
+                }
+            )
+        return Response({"results": results})
+
+    @action(detail=True, methods=["get"], permission_classes=[permissions.IsAuthenticated, CanEditForm])
+    def collaborator_candidates(self, request, pk=None):
+        """
+        List all users who can be added as collaborators (excluding owner and existing collaborators).
+        Owner only; capped for performance.
+        """
+        form = self.get_object()
+        if form.owner_id != request.user.id:
+            return Response(
+                {"detail": "Only the form owner can list users."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        User = get_user_model()
+        existing = set(FormCollaborator.objects.filter(form=form).values_list("user_id", flat=True))
+        existing.add(form.owner_id)
+        qs = User.objects.exclude(id__in=existing).order_by("username", "id")[:200]
         results = []
         for u in qs:
             results.append(

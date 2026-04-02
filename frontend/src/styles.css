@@ -886,6 +886,21 @@ button.gf-tab:hover {
   margin-top: 6px;
 }
 
+.gf-collab-candidate-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gf-collab-candidate-list {
+  max-height: 280px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
 .gf-collab-dropdown {
   position: absolute;
   left: 0;
