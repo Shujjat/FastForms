@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
@@ -42,6 +43,9 @@ class RegisterSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     """Current user profile (`/api/auth/me`)."""
 
+    owned_forms_count = serializers.SerializerMethodField()
+    free_tier_max_forms = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = (
@@ -54,8 +58,26 @@ class UserSerializer(serializers.ModelSerializer):
             "phone",
             "organization",
             "is_superuser",
+            "billing_plan",
+            "billing_current_period_end",
+            "owned_forms_count",
+            "free_tier_max_forms",
         )
-        read_only_fields = ("is_superuser",)
+        read_only_fields = (
+            "is_superuser",
+            "billing_plan",
+            "billing_current_period_end",
+            "owned_forms_count",
+            "free_tier_max_forms",
+        )
+
+    def get_owned_forms_count(self, obj):
+        from apps.forms.models import Form
+
+        return Form.objects.filter(owner=obj).count()
+
+    def get_free_tier_max_forms(self, obj):
+        return int(getattr(settings, "FREE_TIER_MAX_FORMS", 5))
 
 
 class AdminUserReadSerializer(serializers.ModelSerializer):

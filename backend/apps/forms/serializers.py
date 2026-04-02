@@ -39,6 +39,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 class FormSerializer(serializers.ModelSerializer):
     questions = QuestionSerializer(many=True, read_only=True)
     my_role = serializers.SerializerMethodField()
+    show_platform_branding = serializers.SerializerMethodField()
 
     class Meta:
         model = Form
@@ -58,8 +59,9 @@ class FormSerializer(serializers.ModelSerializer):
             "updated_at",
             "questions",
             "my_role",
+            "show_platform_branding",
         )
-        read_only_fields = ("created_at", "updated_at", "my_role")
+        read_only_fields = ("created_at", "updated_at", "my_role", "show_platform_branding")
 
     def get_my_role(self, obj):
         """How the current user relates to this form: owner | editor | viewer | respondent."""
@@ -73,6 +75,12 @@ class FormSerializer(serializers.ModelSerializer):
         if collabs:
             return collabs[0].role
         return "respondent"
+
+    def get_show_platform_branding(self, obj):
+        owner = getattr(obj, "owner", None)
+        if not owner:
+            return True
+        return getattr(owner, "billing_plan", User.BillingPlan.FREE) == User.BillingPlan.FREE
 
 
 class FormCreateSerializer(serializers.ModelSerializer):

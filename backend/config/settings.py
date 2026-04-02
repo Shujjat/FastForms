@@ -187,6 +187,18 @@ _raw_ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "300"))
 OLLAMA_TIMEOUT = max(60, min(_raw_ollama_timeout, 7200))
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
 
+# Privacy: set AI_LOG_VERBOSE=1 only on locked-down dev machines — logs AI prompt previews and draft titles.
+AI_LOG_VERBOSE = os.getenv("AI_LOG_VERBOSE", "").strip().lower() in ("1", "true", "yes")
+
+# Optional: delete Response+Answer rows older than N days (0 = disabled). Run: python manage.py purge_old_responses
+RESPONSE_RETENTION_DAYS = int(os.getenv("RESPONSE_RETENTION_DAYS", "0"))
+
+# Billing: free tier caps owned forms; Pro via Stripe (see .env.example)
+FREE_TIER_MAX_FORMS = int(os.getenv("FREE_TIER_MAX_FORMS", "5"))
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
+STRIPE_PRICE_PRO_MONTHLY = os.getenv("STRIPE_PRICE_PRO_MONTHLY", "").strip()
+
 # AI/Ollama lines use a tagged formatter; keep django.server so runserver request lines still appear.
 LOGGING = {
     "version": 1,
@@ -210,7 +222,13 @@ LOGGING = {
         "django.server": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "apps.llm": {
             "handlers": ["ai_console"],
-            "level": "DEBUG" if DEBUG else "WARNING",
+            # INFO in dev without flooding DEBUG unless diagnosing; production stays WARNING.
+            "level": "INFO" if DEBUG else "WARNING",
+            "propagate": False,
+        },
+        "apps.forms": {
+            "handlers": ["console"],
+            "level": "INFO" if DEBUG else "WARNING",
             "propagate": False,
         },
     },

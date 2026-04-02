@@ -68,9 +68,9 @@ class SuggestFormView(APIView):
             len(p),
             ollama_health_model_display(),
         )
-        if django_settings.DEBUG:
+        if getattr(django_settings, "AI_LOG_VERBOSE", False):
             preview = p[:160] + ("…" if len(p) > 160 else "")
-            logger.debug("AI suggest_form prompt preview: %r", preview)
+            logger.info("AI suggest_form prompt preview (AI_LOG_VERBOSE): %r", preview)
         t0 = time.monotonic()
         raw = ""
         try:
@@ -121,12 +121,22 @@ class SuggestFormView(APIView):
         elapsed = time.monotonic() - t0
         nq = len(draft.get("questions") or [])
         title = draft.get("title") or ""
-        logger.info(
-            "AI suggest_form OK user=%s pk=%s duration_s=%.2f title=%r question_count=%d",
-            uname,
-            uid,
-            elapsed,
-            (title[:100] + "…") if len(title) > 100 else title,
-            nq,
-        )
+        if getattr(django_settings, "AI_LOG_VERBOSE", False):
+            logger.info(
+                "AI suggest_form OK user=%s pk=%s duration_s=%.2f title=%r question_count=%d",
+                uname,
+                uid,
+                elapsed,
+                (title[:100] + "…") if len(title) > 100 else title,
+                nq,
+            )
+        else:
+            logger.info(
+                "AI suggest_form OK user=%s pk=%s duration_s=%.2f title_len=%d question_count=%d",
+                uname,
+                uid,
+                elapsed,
+                len(title),
+                nq,
+            )
         return Response(draft)

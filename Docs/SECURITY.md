@@ -60,3 +60,16 @@ Please report security issues **privately** instead of using public issues, so t
 - Contact the maintainers with enough detail to reproduce (affected version, steps, impact). Maintainer email and WhatsApp are listed in [CONTRIBUTING.md](CONTRIBUTING.md) under **Maintainer contact**.
 
 Do not include live credentials or production data in reports.
+
+## Privacy operations checklist (operators)
+
+Use with [PRIVACY.md](PRIVACY.md), [SUBPROCESSORS.md](SUBPROCESSORS.md), and [DATA_LIFECYCLE.md](DATA_LIFECYCLE.md).
+
+- [ ] Publish an accurate **privacy policy** and **terms** on your live site (replace placeholders in `Docs/` drafts).
+- [ ] Maintain **SUBPROCESSORS.md** when changing host, DB, email, CDN, analytics, payments, or LLM providers.
+- [ ] Set **`DEBUG=False`** in production; lock **`CORS_ALLOWED_ORIGINS`** and **`ALLOWED_HOSTS`**.
+- [ ] Enable **TLS** at the edge; forward **`X-Forwarded-Proto`**.
+- [ ] Prefer **`AI_LOG_VERBOSE=0`** (default off) in production `.env` so AI logs stay metadata-only — see `backend/config/settings.py`.
+- [ ] Configure **`RESPONSE_RETENTION_DAYS`** (optional) and schedule **`purge_old_responses`** if you promise automatic deletion.
+- [ ] Restrict access to **exports** and **admin** routes; train staff not to copy response data unnecessarily.
+- [ ] For EU/UK customers, offer a **DPA** and document transfers (SCCs or adequacy).

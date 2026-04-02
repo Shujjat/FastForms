@@ -1,4 +1,5 @@
 import csv
+import logging
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -28,6 +29,9 @@ from .serializers import (
 from .tasks import send_new_response_notification_task
 from .template_loader import get_template, list_template_summaries
 from apps.users.avatar import gravatar_url
+from apps.users.billing_limits import assert_can_create_owned_form
+
+logger = logging.getLogger(__name__)
 
 
 class FormViewSet(viewsets.ModelViewSet):
@@ -66,6 +70,7 @@ class FormViewSet(viewsets.ModelViewSet):
             "publish",
             "questions",
             "reorder_questions",
+            "clear_responses",
             "invite",
             "duplicate",
             "collaborator_search",
@@ -75,11 +80,13 @@ class FormViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated(), IsOwnerOrReadOnly()]
 
     def perform_create(self, serializer):
+        assert_can_create_owned_form(self.request.user)
         serializer.save(owner=self.request.user)
 
     @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated, CanEditForm])
     def duplicate(self, request, pk=None):
         source = self.get_object()
+        assert_can_create_owned_form(request.user)
         with transaction.atomic():
             new_form = Form.objects.create(
                 owner=request.user,
@@ -143,6 +150,21 @@ class FormViewSet(viewsets.ModelViewSet):
                 q.order_index = idx
                 q.save(update_fields=["order_index"])
         return Response({"status": "reordered"})
+
+    @action(detail=True, methods=["post"], url_path="responses/clear", permission_classes=[permissions.IsAuthenticated, CanEditForm])
+    def clear_responses(self, request, pk=None):
+        """Delete all submitted responses (and answers) for this form; keep form and questions."""
+        form = self.get_object()
+        qs = FormResponse.objects.filter(form=form)
+        n = qs.count()
+        qs.delete()
+        logger.info(
+            "forms_clear_responses user_id=%s form_id=%s deleted_count=%s",
+            getattr(request.user, "id", None),
+            form.id,
+            n,
+        )
+        return Response({"deleted_count": n}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], permission_classes=[permissions.IsAuthenticated, IsOwnerOrReadOnly])
     def collaborators(self, request, pk=None):
@@ -473,6 +495,13 @@ def export_responses(request, form_id):
     responses = FormResponse.objects.filter(form_id=form_id, form__owner=request.user).prefetch_related(
         "answers", "answers__question"
     )
+    logger.info(
+        "export_responses user_id=%s form_id=%s format=%s response_count=%s",
+        getattr(request.user, "id", None),
+        form_id,
+        export_format,
+        responses.count(),
+    )
     if export_format == "json":
         return Response(ResponseSerializer(responses, many=True).data)
 
@@ -554,6 +583,10 @@ def create_form_from_template(request):
     tid = (request.data or {}).get("template_id")
     if not tid:
         return Response({"detail": "template_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        assert_can_create_owned_form(request.user)
+    except ValidationError as e:
+        return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
     payload = get_template(str(tid))
     if not payload:
         return Response({"detail": "Unknown template."}, status=status.HTTP_404_NOT_FOUND)

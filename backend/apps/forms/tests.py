@@ -81,6 +81,25 @@ class FastFormsApiTests(APITestCase):
         res = self.client.post("/api/forms", {"title": "Nope", "description": ""}, format="json")
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_owner_can_clear_all_responses(self):
+        self._login("creator1")
+        form_id = self.client.post("/api/forms", {"title": "Clearable", "description": "d"}, format="json").data["id"]
+        q = self.client.post(
+            f"/api/forms/{form_id}/questions",
+            {"order_index": 0, "question_type": "short_text", "text": "Q1", "required": False},
+            format="json",
+        ).data
+        self.client.post(f"/api/forms/{form_id}/publish", format="json")
+        self._login("resp1")
+        self.client.post(f"/api/forms/{form_id}/submit", {"answers": {str(q["id"]): "x"}}, format="json")
+        self._login("creator1")
+        clear = self.client.post(f"/api/forms/{form_id}/responses/clear", {}, format="json")
+        self.assertEqual(clear.status_code, status.HTTP_200_OK)
+        self.assertEqual(clear.data.get("deleted_count"), 1)
+        remaining = self.client.get(f"/api/forms/{form_id}/responses")
+        self.assertEqual(remaining.status_code, status.HTTP_200_OK)
+        self.assertEqual(remaining.data, [])
+
     def test_owner_can_export_responses(self):
         self._login("creator1")
         form = self.client.post("/api/forms", {"title": "Exportable", "description": "d"}, format="json").data

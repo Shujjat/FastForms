@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { api, downloadFormExport, formatApiError, setAuthToken, setRefreshToken } from "./api";
 
@@ -241,6 +241,118 @@ function mergeValidationPatch(prev, patch) {
   return next;
 }
 
+/** Stored preference for optional analytics/ads scripts (none ship by default). See Docs/MONETIZATION_AND_PRIVACY.md */
+const COOKIE_CONSENT_KEY = "ff_cookie_consent";
+
+function CookieConsentBanner() {
+  const { pathname } = useLocation();
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (pathname.startsWith("/fill/")) {
+      setVisible(false);
+      return;
+    }
+    try {
+      setVisible(!localStorage.getItem(COOKIE_CONSENT_KEY));
+    } catch {
+      setVisible(true);
+    }
+  }, [pathname]);
+
+  const setConsent = (value) => {
+    try {
+      localStorage.setItem(COOKIE_CONSENT_KEY, value);
+    } catch {
+      /* ignore */
+    }
+    setVisible(false);
+  };
+
+  if (!visible) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Cookie preferences"
+      style={{
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 9999,
+        padding: "14px 18px",
+        background: "#1e1b4b",
+        color: "#e0e7ff",
+        boxShadow: "0 -4px 24px rgba(0,0,0,0.15)",
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 12,
+        justifyContent: "space-between",
+      }}
+    >
+      <p style={{ margin: 0, fontSize: 13, flex: "1 1 280px", maxWidth: 720 }}>
+        FastForms uses essential storage for login. If you add analytics or ads later, load them only when consent is{" "}
+        <strong>Accept</strong>.{" "}
+        <Link to="/privacy" style={{ color: "#c4b5fd" }}>
+          Privacy
+        </Link>
+      </p>
+      <div className="row" style={{ gap: 8 }}>
+        <button type="button" className="btn-secondary btn-sm" onClick={() => setConsent("essential_only")}>
+          Essential only
+        </button>
+        <button type="button" className="btn-primary btn-sm" onClick={() => setConsent("accepted_optional")}>
+          Accept
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LegalDocPage({ filename, title }) {
+  const [text, setText] = useState("");
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    setErr("");
+    setText("");
+    const base = (import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
+    fetch(`${base}legal/${filename}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("missing");
+        return r.text();
+      })
+      .then(setText)
+      .catch(() => setErr("Could not load this document. Build includes a copy under frontend/public/legal/."));
+  }, [filename]);
+
+  return (
+    <Layout>
+      <h2>{title}</h2>
+      <p style={{ fontSize: 13, color: "#6b7280" }}>
+        Draft for operators — replace placeholders in the repo <code>Docs/</code> files before publishing commercially.
+      </p>
+      {err && <p className="msg msg-error">{err}</p>}
+      <pre
+        style={{
+          whiteSpace: "pre-wrap",
+          fontFamily: "ui-monospace, monospace",
+          fontSize: 13,
+          lineHeight: 1.55,
+          marginTop: 16,
+          padding: 16,
+          background: "#f8fafc",
+          borderRadius: 8,
+          border: "1px solid #e2e8f0",
+        }}
+      >
+        {text}
+      </pre>
+    </Layout>
+  );
+}
+
 // --- Auth Context ---
 
 const AuthContext = createContext({
@@ -311,7 +423,7 @@ function AdminRoute({ children }) {
 // --- Layout ---
 
 function Layout({ children }) {
-  const { isAuthed, isAdminUser, refreshAuth } = useAuth();
+  const { isAuthed, isAdminUser, userRole, refreshAuth } = useAuth();
   const navigate = useNavigate();
   const logout = () => {
     setAuthToken(null);
@@ -326,6 +438,7 @@ function Layout({ children }) {
         <nav>
           <Link to="/">Forms</Link>
           <Link to="/templates">Templates</Link>
+          {isAuthed && ["creator", "admin"].includes(userRole || "") && <Link to="/billing">Billing</Link>}
           {isAuthed && isAdminUser && <Link to="/admin/users">Users</Link>}
           {!isAuthed && <Link to="/register">Register</Link>}
           {!isAuthed && <Link to="/login">Login</Link>}
@@ -337,6 +450,13 @@ function Layout({ children }) {
         </nav>
       </header>
       {children}
+      <footer className="site-footer">
+        <Link to="/privacy">Privacy</Link>
+        <span aria-hidden="true" style={{ margin: "0 10px", color: "#d1d5db" }}>
+          |
+        </span>
+        <Link to="/terms">Terms</Link>
+      </footer>
     </div>
   );
 }
@@ -1094,7 +1214,7 @@ function UsersPage() {
 // --- Forms List ---
 
 function FormsPage() {
-  const { userRole } = useAuth();
+  const { userRole, user, refreshAuth } = useAuth();
   const canDesign = ["creator", "admin"].includes(userRole || "");
   const navigate = useNavigate();
   const [forms, setForms] = useState([]);
@@ -1112,6 +1232,16 @@ function FormsPage() {
   };
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    void refreshAuth();
+  }, [refreshAuth]);
+
+  const atFreeFormLimit =
+    canDesign &&
+    user?.billing_plan === "free" &&
+    typeof user?.owned_forms_count === "number" &&
+    typeof user?.free_tier_max_forms === "number" &&
+    user.owned_forms_count >= user.free_tier_max_forms;
 
   const createForm = async (e) => {
     e.preventDefault();
@@ -1120,9 +1250,10 @@ function FormsPage() {
       setTitle("");
       setDescription("");
       await load();
+      await refreshAuth();
       setMsg("Form created.");
     } catch (err) {
-      setMsg(JSON.stringify(err.response?.data || err.message));
+      setMsg(formatApiError(err));
     }
   };
 
@@ -1135,10 +1266,11 @@ function FormsPage() {
     try {
       const { data } = await api.post(`/api/forms/${id}/duplicate`);
       await load();
+      await refreshAuth();
       setMsg(`Created a copy: ${data.title}`);
       navigate(`/forms/${data.id}`);
     } catch (err) {
-      setMsg(JSON.stringify(err.response?.data || err.message));
+      setMsg(formatApiError(err));
     }
   };
 
@@ -1148,11 +1280,19 @@ function FormsPage() {
       <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8, marginBottom: 16 }}>
         Browse <Link to="/templates">Templates</Link> for ready-made forms and themes. Forms you created, were invited to, or have submitted to appear here. Open <strong>Share</strong> to change visibility (owners only), copy the link, and send invites.
       </p>
+      {canDesign && atFreeFormLimit && (
+        <p className="msg" style={{ marginBottom: 12 }}>
+          You&apos;ve reached the free limit ({user?.free_tier_max_forms} forms you own).{" "}
+          <Link to="/billing">Upgrade to Pro</Link> to create more, or delete forms you no longer need.
+        </p>
+      )}
       {canDesign && (
         <form onSubmit={createForm} className="stack card" style={{ marginBottom: 20 }}>
           <input placeholder="Form title" value={title} onChange={(e) => setTitle(e.target.value)} />
           <textarea placeholder="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
-          <button className="btn-primary">Create Form</button>
+          <button className="btn-primary" disabled={atFreeFormLimit}>
+            Create Form
+          </button>
         </form>
       )}
       {!canDesign && <p className="msg">You have respondent access. Form design is disabled.</p>}
@@ -1184,7 +1324,12 @@ function FormsPage() {
                     <Link to={`/forms/${f.id}`}>
                       <button className="btn-primary btn-sm" type="button">Design</button>
                     </Link>
-                    <button className="btn-secondary btn-sm" type="button" onClick={() => duplicateForm(f.id)}>
+                    <button
+                      className="btn-secondary btn-sm"
+                      type="button"
+                      disabled={atFreeFormLimit}
+                      onClick={() => duplicateForm(f.id)}
+                    >
                       Duplicate
                     </button>
                   </>
@@ -2696,6 +2841,18 @@ function isFillAnswerEmpty(q, value) {
   return false;
 }
 
+function FillPlatformBrandingFooter({ show }) {
+  if (!show) return null;
+  return (
+    <p
+      className="fill-platform-branding"
+      style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid rgba(0,0,0,0.08)", fontSize: 12, color: "#9ca3af", textAlign: "center" }}
+    >
+      Powered by <Link to="/" style={{ color: "#6366f1" }}>FastForms</Link>
+    </p>
+  );
+}
+
 // --- Fill Form Page ---
 
 function FillFormPage() {
@@ -2800,6 +2957,7 @@ function FillFormPage() {
                 <button className="btn-primary fill-themed-btn" style={{ marginTop: 12 }}>Submit another response</button>
               </Link>
             </div>
+            <FillPlatformBrandingFooter show={form.show_platform_branding} />
           </div>
         </div>
       </Layout>
@@ -2868,6 +3026,7 @@ function FillFormPage() {
           )}
           {msg && <p className="msg msg-error" style={{ marginTop: 8 }}>{msg}</p>}
         </form>
+        <FillPlatformBrandingFooter show={form.show_platform_branding} />
         </div>
       </div>
     </Layout>
@@ -2878,6 +3037,8 @@ function FillFormPage() {
 
 function AnalyticsPage() {
   const { formId } = useParams();
+  const { userRole } = useAuth();
+  const canEditForm = ["creator", "admin"].includes(userRole || "");
   const [data, setData] = useState(null);
   const [responses, setResponses] = useState([]);
   const [err, setErr] = useState("");
@@ -2888,6 +3049,8 @@ function AnalyticsPage() {
   const [submittedAfter, setSubmittedAfter] = useState("");
   const [submittedBefore, setSubmittedBefore] = useState("");
   const [exportMsg, setExportMsg] = useState("");
+  const [clearMsg, setClearMsg] = useState("");
+  const [clearBusy, setClearBusy] = useState(false);
 
   useEffect(() => {
     setSearchDraft("");
@@ -2926,6 +3089,34 @@ function AnalyticsPage() {
     setSearch(searchDraft);
     setSubmittedAfter(afterDraft);
     setSubmittedBefore(beforeDraft);
+  };
+
+  const clearAllResponses = async () => {
+    if (!canEditForm) return;
+    const n = data?.total_responses ?? 0;
+    if (n === 0) {
+      setClearMsg("No responses to delete.");
+      return;
+    }
+    if (!window.confirm(`Delete all ${n} response(s) for this form? This cannot be undone. The form and questions stay.`)) {
+      return;
+    }
+    setClearMsg("");
+    setClearBusy(true);
+    try {
+      const { data: body } = await api.post(`/api/forms/${formId}/responses/clear`, {});
+      setClearMsg(`Deleted ${body.deleted_count ?? 0} response(s).`);
+      const [analyticsRes, responsesRes] = await Promise.all([
+        api.get(`/api/forms/${formId}/analytics`),
+        api.get(`/api/forms/${formId}/responses`),
+      ]);
+      setData(analyticsRes.data);
+      setResponses(responsesRes.data || []);
+    } catch (e) {
+      setClearMsg(formatApiError(e));
+    } finally {
+      setClearBusy(false);
+    }
   };
 
   if (err) return <Layout><p className="msg msg-error">{err}</p></Layout>;
@@ -2981,8 +3172,24 @@ function AnalyticsPage() {
             >
               Download JSON
             </button>
+            {canEditForm && (
+              <button
+                type="button"
+                className="btn-danger btn-sm"
+                disabled={clearBusy || !data.total_responses}
+                onClick={clearAllResponses}
+                title="Remove all submitted responses (privacy / retention)"
+              >
+                {clearBusy ? "Deleting…" : "Delete all responses"}
+              </button>
+            )}
           </div>
           {exportMsg && <p className="msg msg-error" style={{ marginTop: 8, marginBottom: 0 }}>{exportMsg}</p>}
+          {clearMsg && (
+            <p className={clearMsg.includes("Deleted") ? "msg" : "msg msg-error"} style={{ marginTop: 8, marginBottom: 0 }}>
+              {clearMsg}
+            </p>
+          )}
           <p style={{ margin: "8px 0 0", color: "#6b7280", fontSize: 12 }}>
             Latest submission: {data.latest_submitted_at ? new Date(data.latest_submitted_at).toLocaleString() : "No submissions yet"}
           </p>
@@ -3054,16 +3261,150 @@ function AnalyticsPage() {
   );
 }
 
+// --- Billing ---
+
+function BillingPage() {
+  const { userRole, refreshAuth } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [info, setInfo] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const canManage = ["creator", "admin"].includes(userRole || "");
+
+  useEffect(() => {
+    if (!canManage) return;
+    (async () => {
+      try {
+        const { data } = await api.get("/api/billing/me");
+        setInfo(data);
+      } catch (e) {
+        setMsg(formatApiError(e));
+      }
+    })();
+  }, [canManage]);
+
+  useEffect(() => {
+    const upgraded = searchParams.get("upgraded");
+    const canceled = searchParams.get("canceled");
+    if (upgraded || canceled) {
+      void refreshAuth();
+      setSearchParams({}, { replace: true });
+      if (upgraded) setMsg("Thanks — your subscription is updating. If the plan still shows Free, wait a few seconds and refresh.");
+      if (canceled) setMsg("Checkout was canceled.");
+    }
+  }, [searchParams, setSearchParams, refreshAuth]);
+
+  const startCheckout = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const { data } = await api.post("/api/billing/checkout");
+      if (data?.url) window.location.href = data.url;
+      else setMsg("No checkout URL returned.");
+    } catch (e) {
+      setMsg(formatApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openPortal = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const { data } = await api.post("/api/billing/portal");
+      if (data?.url) window.location.href = data.url;
+      else setMsg("No portal URL returned.");
+    } catch (e) {
+      setMsg(formatApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!canManage) {
+    return (
+      <Layout>
+        <h2>Billing</h2>
+        <p className="msg">Billing is available for creator and admin accounts.</p>
+        <Link to="/">Back to forms</Link>
+      </Layout>
+    );
+  }
+
+  const max = info?.free_tier_max_forms ?? 5;
+  const owned = info?.owned_forms_count ?? 0;
+  const plan = info?.billing_plan || "free";
+  const periodEnd = info?.billing_current_period_end
+    ? new Date(info.billing_current_period_end).toLocaleString()
+    : null;
+
+  return (
+    <Layout>
+      <h2>Billing</h2>
+      <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8 }}>
+        Pro removes the form limit and the &quot;Powered by FastForms&quot; line on public fill pages. Respondents never pay.
+      </p>
+      {msg && <p className="msg">{msg}</p>}
+      {!info && !msg && <p>Loading…</p>}
+      {info && (
+        <div className="card stack" style={{ maxWidth: 520, marginTop: 16 }}>
+          <p>
+            <strong>Plan:</strong> {plan === "pro" ? "Pro" : "Free"}
+          </p>
+          {plan === "pro" && periodEnd && (
+            <p style={{ fontSize: 14, color: "#6b7280" }}>
+              Current period ends (UTC): {periodEnd}
+            </p>
+          )}
+          <p style={{ fontSize: 14, color: "#6b7280" }}>
+            Forms you own: {owned}
+            {plan !== "pro" && (
+              <>
+                {" "}
+                (free tier: up to {max})
+              </>
+            )}
+          </p>
+          {plan !== "pro" && (
+            <button type="button" className="btn-primary" disabled={busy || !info.stripe_checkout_available} onClick={() => void startCheckout()}>
+              Upgrade to Pro
+            </button>
+          )}
+          {!info.stripe_checkout_available && plan !== "pro" && (
+            <p style={{ fontSize: 13, color: "#b45309" }}>
+              Stripe is not configured on the server (missing secret key or price ID). Ask your operator to set STRIPE_SECRET_KEY and STRIPE_PRICE_PRO_MONTHLY.
+            </p>
+          )}
+          {info.stripe_portal_available && (
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => void openPortal()}>
+              Manage subscription
+            </button>
+          )}
+          <button type="button" className="btn-secondary btn-sm" style={{ alignSelf: "flex-start" }} onClick={() => navigate("/")}>
+            Back to forms
+          </button>
+        </div>
+      )}
+    </Layout>
+  );
+}
+
 // --- App Routes ---
 
 export default function App() {
   return (
     <AuthProvider>
+      <CookieConsentBanner />
       <Routes>
         <Route path="/" element={<ProtectedRoute><FormsPage /></ProtectedRoute>} />
         <Route path="/templates" element={<TemplatesPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/privacy" element={<LegalDocPage filename="PRIVACY.md" title="Privacy policy (draft)" />} />
+        <Route path="/terms" element={<LegalDocPage filename="TERMS.md" title="Terms of service (draft)" />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/forms/:formId" element={<ProtectedRoute requireDesignerRole={true}><FormEditorPage /></ProtectedRoute>} />
@@ -3071,6 +3412,7 @@ export default function App() {
         <Route path="/fill/:formId" element={<ProtectedRoute><FillFormPage /></ProtectedRoute>} />
         <Route path="/analytics/:formId" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
         <Route path="/admin/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
+        <Route path="/billing" element={<ProtectedRoute><BillingPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>
