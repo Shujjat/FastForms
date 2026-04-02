@@ -2233,7 +2233,9 @@ function FormEditorPage() {
     setAiBusy(true);
     setDesignerErr("");
     setDesignerErrTimeout(false);
-    const suggestTimeoutMs = (Math.max(Number(aiOllamaTimeoutSec) || 300, 60) + 30) * 1000;
+    // Must exceed server OLLAMA_TIMEOUT: if the browser gives up first, Django still finishes and hits "Broken pipe" when writing the body.
+    const serverSec = Math.max(Number(aiOllamaTimeoutSec) || 300, 60);
+    const suggestTimeoutMs = (serverSec + 300) * 1000;
     try {
       const { data } = await api.post("/api/ai/suggest_form", { prompt: p }, { timeout: suggestTimeoutMs });
       const qList = data.questions || [];
