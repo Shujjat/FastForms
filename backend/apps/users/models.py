@@ -1,4 +1,5 @@
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -11,11 +12,11 @@ class BillingPackage(models.Model):
     sort_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(
         default=True,
-        help_text="If false, hidden from default pickers but superusers can still assign.",
+        help_text="Inactive packages are hidden from catalog pickers and Billing (except superuser assignment).",
     )
     is_free_tier = models.BooleanField(
         default=False,
-        help_text="Exactly one package should be the free tier (form limits, branding).",
+        help_text="Mark the single free/default tier (form limits, branding). Saving clears this flag on all other rows.",
     )
     max_owned_forms = models.PositiveIntegerField(
         null=True,
@@ -31,9 +32,79 @@ class BillingPackage(models.Model):
         default=30,
         help_text="Length of each AI credit period (days).",
     )
+    allow_self_select = models.BooleanField(
+        default=False,
+        help_text="Let creators/admins switch to this plan on Billing without a superuser. Not allowed with a Stripe price (use Checkout instead). Requires Active.",
+    )
+    stripe_price_id = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        unique=True,
+        help_text="Stripe recurring Price ID (price_…). Checkout uses this server-side; webhooks map the paid subscription to this package.",
+    )
+    price_cents = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Display amount in smallest currency unit (e.g. USD cents). Informational only.",
+    )
+    price_currency = models.CharField(
+        max_length=3,
+        default="usd",
+        help_text="ISO 4217 lowercase currency code for display (e.g. usd, eur).",
+    )
 
     class Meta:
         ordering = ["sort_order", "id"]
+
+    @classmethod
+    def validate_constraints(
+        cls,
+        *,
+        is_free_tier: bool,
+        is_active: bool,
+        allow_self_select: bool,
+        stripe_price_id: str | None,
+    ) -> None:
+        """Shared rules for API, admin, and model forms."""
+        errors: dict[str, list[str]] = {}
+        sp = (stripe_price_id or "").strip() or None
+
+        def add(field: str, message: str) -> None:
+            errors.setdefault(field, []).append(message)
+
+        if is_free_tier and sp:
+            add("stripe_price_id", "Free tier cannot have a Stripe price.")
+        if is_free_tier and not is_active:
+            add("is_active", "The free tier must stay active so new accounts always have a default plan.")
+        if allow_self_select:
+            if not is_active:
+                add(
+                    "allow_self_select",
+                    "Inactive packages are not shown on Billing. Activate the package or turn off self-select.",
+                )
+            if sp and not is_free_tier:
+                add(
+                    "allow_self_select",
+                    "Paid plans with a Stripe price must use Checkout or the customer portal, not Billing self-select.",
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def clean(self) -> None:
+        super().clean()
+        type(self).validate_constraints(
+            is_free_tier=bool(self.is_free_tier),
+            is_active=bool(self.is_active),
+            allow_self_select=bool(self.allow_self_select),
+            stripe_price_id=self.stripe_price_id,
+        )
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.is_free_tier:
+            BillingPackage.objects.exclude(pk=self.pk).update(is_free_tier=False)
 
     def __str__(self):
         return self.name

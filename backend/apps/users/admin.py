@@ -10,13 +10,17 @@ class BillingPackageAdmin(admin.ModelAdmin):
         "name",
         "slug",
         "sort_order",
+        "price_cents",
+        "price_currency",
+        "stripe_price_id",
         "max_owned_forms",
         "ai_credits_per_period",
         "ai_usage_period_days",
         "is_active",
         "is_free_tier",
+        "allow_self_select",
     )
-    list_editable = ("sort_order", "is_active", "is_free_tier")
+    list_editable = ("sort_order", "is_active", "is_free_tier", "allow_self_select")
     search_fields = ("name", "slug")
     ordering = ("sort_order", "id")
 

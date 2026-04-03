@@ -81,6 +81,19 @@ body {
   text-align: left;
 }
 
+/* Inline checkbox + label text (overrides column layout + full-width inputs) */
+.stack label:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.stack label:has(> input[type="checkbox"]) input[type="checkbox"] {
+  width: auto;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
 .row {
   display: flex;
   gap: 10px;

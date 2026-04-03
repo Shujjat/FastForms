@@ -797,6 +797,17 @@ function packagesOptionalPositiveInt(v) {
   return n;
 }
 
+/** @param {{ price_cents?: number | null, price_currency?: string }} p */
+function formatBillingPackagePrice(p) {
+  if (p == null || p.price_cents == null) return null;
+  const cur = (p.price_currency || "usd").toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(p.price_cents / 100);
+  } catch {
+    return `${(p.price_cents / 100).toFixed(2)} ${cur}`;
+  }
+}
+
 function PackagesPage() {
   const [rows, setRows] = useState([]);
   const [msg, setMsg] = useState("");
@@ -809,6 +820,10 @@ function PackagesPage() {
     sort_order: 0,
     is_active: true,
     is_free_tier: false,
+    allow_self_select: false,
+    stripe_price_id: "",
+    price_cents: "",
+    price_currency: "usd",
     max_owned_forms: "",
     ai_credits_per_period: "",
     ai_usage_period_days: "30",
@@ -838,6 +853,10 @@ function PackagesPage() {
       sort_order: 0,
       is_active: true,
       is_free_tier: false,
+      allow_self_select: false,
+      stripe_price_id: "",
+      price_cents: "",
+      price_currency: "usd",
       max_owned_forms: "",
       ai_credits_per_period: "",
       ai_usage_period_days: "30",
@@ -853,6 +872,10 @@ function PackagesPage() {
       sort_order: p.sort_order ?? 0,
       is_active: Boolean(p.is_active),
       is_free_tier: Boolean(p.is_free_tier),
+      allow_self_select: Boolean(p.allow_self_select),
+      stripe_price_id: p.stripe_price_id || "",
+      price_cents: p.price_cents != null ? String(p.price_cents) : "",
+      price_currency: p.price_currency || "usd",
       max_owned_forms: p.max_owned_forms != null ? String(p.max_owned_forms) : "",
       ai_credits_per_period: p.ai_credits_per_period != null ? String(p.ai_credits_per_period) : "",
       ai_usage_period_days: String(p.ai_usage_period_days ?? 30),
@@ -873,6 +896,16 @@ function PackagesPage() {
       sort_order: Number(form.sort_order) || 0,
       is_active: form.is_active,
       is_free_tier: form.is_free_tier,
+      allow_self_select: form.allow_self_select,
+      stripe_price_id: form.stripe_price_id.trim() || null,
+      price_cents:
+        form.price_cents === "" || form.price_cents == null
+          ? null
+          : (() => {
+              const n = Number(form.price_cents);
+              return Number.isFinite(n) && n >= 1 ? Math.round(n) : null;
+            })(),
+      price_currency: (form.price_currency || "usd").trim().toLowerCase() || "usd",
       max_owned_forms: packagesOptionalPositiveInt(form.max_owned_forms),
       ai_credits_per_period: packagesOptionalPositiveInt(form.ai_credits_per_period),
       ai_usage_period_days: Number(form.ai_usage_period_days) || 30,
@@ -882,7 +915,7 @@ function PackagesPage() {
         await api.post("/api/billing/packages", payload);
         setMsg("Package created.");
       } else {
-        await api.patch(`/api/billing/packages/${editingId}`, payload);
+        await api.patch(`/api/billing/packages/${editingId}/`, payload);
         setMsg("Package updated.");
       }
       resetForm();
@@ -897,7 +930,7 @@ function PackagesPage() {
     setErr("");
     setMsg("");
     try {
-      await api.delete(`/api/billing/packages/${p.id}`);
+      await api.delete(`/api/billing/packages/${p.id}/`);
       setMsg("Package deleted.");
       if (editingId === p.id) resetForm();
       await load();
@@ -911,8 +944,7 @@ function PackagesPage() {
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
         <h2>Billing packages</h2>
         <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8 }}>
-          Create and edit sellable tiers. Set <strong>max owned forms</strong> and <strong>AI credits per period</strong> (leave blank for unlimited). Exactly one package should be the free tier (<strong>is free tier</strong>). Stripe uses{" "}
-          <code>STRIPE_SUBSCRIPTION_PACKAGE_SLUG</code>. You cannot delete a package while users are still assigned to it.
+          Create and edit sellable tiers. Set <strong>max owned forms</strong> and <strong>AI credits per period</strong> (leave blank for unlimited). Exactly one package should be the free tier (<strong>is free tier</strong>). For paid Stripe plans, set <strong>Stripe Price ID</strong> (<code>price_…</code>) on the package — checkout uses it server-side; webhooks activate the matching package after payment. Optional <strong>price cents</strong> / currency are for display on Billing. Check <strong>self-select on Billing</strong> so creators can switch to free or other self-serve tiers. You cannot delete a package while users are still assigned to it.
         </p>
         {msg && <p className="msg">{msg}</p>}
         {err && <p className="msg msg-error">{err}</p>}
@@ -981,14 +1013,92 @@ function PackagesPage() {
                 style={{ display: "block", marginTop: 6, width: "100%", padding: "8px" }}
               />
             </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+            <input
+              placeholder="Stripe Price ID (price_…, paid packages only)"
+              value={form.stripe_price_id}
+              onChange={(e) => {
+                const v = e.target.value;
+                setForm({
+                  ...form,
+                  stripe_price_id: v,
+                  allow_self_select: v.trim() && !form.is_free_tier ? false : form.allow_self_select,
+                });
+              }}
+              title="Recurring price from Stripe Dashboard → Products"
+            />
+            <div className="row" style={{ gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <label style={{ fontSize: 13, flex: "1 1 140px" }}>
+                Display price (cents)
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 999"
+                  value={form.price_cents}
+                  onChange={(e) => setForm({ ...form, price_cents: e.target.value })}
+                  style={{ display: "block", marginTop: 6, width: "100%", padding: "8px" }}
+                />
+              </label>
+              <label style={{ fontSize: 13, flex: "0 0 88px" }}>
+                Currency
+                <input
+                  placeholder="usd"
+                  maxLength={3}
+                  value={form.price_currency}
+                  onChange={(e) => setForm({ ...form, price_currency: e.target.value })}
+                  style={{ display: "block", marginTop: 6, width: "100%", padding: "8px", textTransform: "lowercase" }}
+                />
+              </label>
+            </div>
+            <label style={{ fontSize: 14 }}>
               <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
-              Active (shown in pickers by default)
+              <span>
+                <strong>Active</strong> — show in catalogs and Billing (inactive rows are superuser-only)
+              </span>
             </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
-              <input type="checkbox" checked={form.is_free_tier} onChange={(e) => setForm({ ...form, is_free_tier: e.target.checked })} />
-              Free tier (form limits &amp; branding; only one should be checked)
+            <label style={{ fontSize: 14 }}>
+              <input
+                type="checkbox"
+                checked={form.is_free_tier}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setForm({
+                    ...form,
+                    is_free_tier: on,
+                    ...(on ? { stripe_price_id: "" } : {}),
+                  });
+                }}
+              />
+              <span>
+                <strong>Free tier</strong> — default plan for limits &amp; branding. Only one package may be free; saving clears it on all others.
+              </span>
             </label>
+            <label
+              style={{
+                fontSize: 14,
+                opacity: form.stripe_price_id.trim() && !form.is_free_tier ? 0.65 : 1,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={form.allow_self_select}
+                disabled={Boolean(form.stripe_price_id.trim() && !form.is_free_tier)}
+                onChange={(e) => setForm({ ...form, allow_self_select: e.target.checked })}
+              />
+              <span>
+                <strong>Self-select on Billing</strong> — creators/admins can switch here without a superuser. Not allowed with a{" "}
+                <strong>Stripe price</strong> (they must use Checkout) or when the package is <strong>inactive</strong>.
+              </span>
+            </label>
+            {form.stripe_price_id.trim() && !form.is_free_tier ? (
+              <p style={{ fontSize: 12, color: "#6b7280", margin: "-4px 0 0 28px" }}>
+                Self-select is disabled while a Stripe Price ID is set on a paid plan.
+              </p>
+            ) : null}
+            {!form.is_active && form.allow_self_select ? (
+              <p style={{ fontSize: 12, color: "#b45309", margin: "-4px 0 0 28px" }}>
+                Turn <strong>Active</strong> on, or disable self-select — inactive plans do not appear on Billing.
+              </p>
+            ) : null}
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
               <button type="submit" className="btn-primary">
                 {editingId == null ? "Create package" : "Save changes"}
@@ -1009,10 +1119,13 @@ function PackagesPage() {
                 <th>Order</th>
                 <th>Slug</th>
                 <th>Name</th>
+                <th>List price</th>
+                <th>Stripe price</th>
                 <th>Forms max</th>
                 <th>AI / period</th>
                 <th>Active</th>
                 <th>Free</th>
+                <th>Self-sel.</th>
                 <th />
               </tr>
             </thead>
@@ -1024,6 +1137,10 @@ function PackagesPage() {
                     <code style={{ fontSize: 12 }}>{p.slug}</code>
                   </td>
                   <td>{p.name}</td>
+                  <td style={{ fontSize: 13 }}>{formatBillingPackagePrice(p) || "—"}</td>
+                  <td style={{ fontSize: 11, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }} title={p.stripe_price_id || ""}>
+                    {p.stripe_price_id ? <code>{p.stripe_price_id}</code> : "—"}
+                  </td>
                   <td style={{ fontSize: 13 }}>{p.max_owned_forms ?? "∞"}</td>
                   <td style={{ fontSize: 13 }}>
                     {p.ai_credits_per_period != null
@@ -1032,6 +1149,7 @@ function PackagesPage() {
                   </td>
                   <td>{p.is_active ? "Yes" : "No"}</td>
                   <td>{p.is_free_tier ? "Yes" : "—"}</td>
+                  <td>{p.allow_self_select ? "Yes" : "—"}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
                     <button type="button" className="btn-secondary btn-sm" onClick={() => startEdit(p)}>
                       Edit
@@ -3768,6 +3886,7 @@ function BillingPage() {
   const [packages, setPackages] = useState([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busySelect, setBusySelect] = useState(false);
 
   const canManage = ["creator", "admin"].includes(userRole || "");
 
@@ -3806,11 +3925,13 @@ function BillingPage() {
     }
   }, [searchParams, setSearchParams, refreshAuth]);
 
-  const startCheckout = async () => {
+  const startCheckout = async (billingPackageId) => {
     setBusy(true);
     setMsg("");
     try {
-      const { data } = await api.post("/api/billing/checkout");
+      const body =
+        billingPackageId != null ? { billing_package_id: billingPackageId } : {};
+      const { data } = await api.post("/api/billing/checkout", body);
       if (data?.url) window.location.href = data.url;
       else setMsg("No checkout URL returned.");
     } catch (e) {
@@ -3831,6 +3952,22 @@ function BillingPage() {
       setMsg(formatApiError(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const selectSelfServicePackage = async (pkgId) => {
+    setBusySelect(true);
+    setMsg("");
+    try {
+      await api.post("/api/billing/select-package", { billing_package_id: pkgId });
+      await refreshAuth();
+      const { data } = await api.get("/api/billing/me");
+      setInfo(data);
+      setMsg("Package updated.");
+    } catch (e) {
+      setMsg(formatApiError(e));
+    } finally {
+      setBusySelect(false);
     }
   };
 
@@ -3857,12 +3994,19 @@ function BillingPage() {
   const stripePkgName =
     packages.find((p) => p.slug === stripeSlug)?.name || stripeSlug;
 
+  const stripeSubscribable = [...packages]
+    .filter((p) => p.is_active && p.stripe_subscribable)
+    .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0));
+
+  const selfSelectable = [...packages]
+    .filter((p) => p.is_active && p.allow_self_select)
+    .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0));
+
   return (
     <Layout>
       <h2>Billing</h2>
       <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8 }}>
-        Package limits (owned forms, AI credits) come from your assigned billing package. Stripe checkout (when configured) assigns the{" "}
-        <strong>{stripePkgName}</strong> package (see <code>STRIPE_SUBSCRIPTION_PACKAGE_SLUG</code>). Superusers edit packages under <strong>Packages</strong> and assign users under <strong>Users</strong>. Respondents never pay.
+        Package limits (owned forms, AI credits) come from your assigned billing package. Paid plans use Stripe: each package row stores a <strong>Stripe Price ID</strong>; after you pay, webhooks activate the matching package automatically. Superusers configure packages under <strong>Packages</strong>. <strong>Self-service</strong> (non-Stripe) plans are listed below. Respondents never pay.
       </p>
       {msg && <p className="msg">{msg}</p>}
       {!info && !msg && <p>Loading…</p>}
@@ -3904,14 +4048,114 @@ function BillingPage() {
             ) : (
               <p style={{ fontSize: 14, color: "#6b7280" }}>AI: unlimited for your package.</p>
             ))}
-          {!planPaid && (
-            <button type="button" className="btn-primary" disabled={busy || !info.stripe_checkout_available} onClick={() => void startCheckout()}>
+          {selfSelectable.length > 0 && (
+            <div className="stack" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e5e7eb" }}>
+              <p style={{ margin: 0, fontWeight: 600 }}>Self-service plans</p>
+              <p style={{ fontSize: 13, color: "#6b7280", margin: 0 }}>
+                Switch to any active package your operator allows here. If you pay through Stripe, cancel or change the subscription in the portal first.
+              </p>
+              {info.stripe_subscription_active && (
+                <p style={{ fontSize: 13, color: "#b45309", margin: 0 }}>
+                  You have an active Stripe subscription on file. Use “Manage subscription” before selecting a different package.
+                </p>
+              )}
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }} className="stack">
+                {selfSelectable.map((p) => {
+                  const current = info.billing_package?.id === p.id;
+                  return (
+                    <li
+                      key={p.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        flexWrap: "wrap",
+                        padding: "10px 12px",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 8,
+                        background: "#fafafa",
+                      }}
+                    >
+                      <div>
+                        <strong>{p.name}</strong>
+                        {p.description ? (
+                          <p style={{ fontSize: 13, color: "#6b7280", margin: "4px 0 0" }}>{p.description}</p>
+                        ) : null}
+                      </div>
+                      {current ? (
+                        <span style={{ fontSize: 13, color: "#059669" }}>Current</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm"
+                          disabled={busy || busySelect || info.stripe_subscription_active}
+                          onClick={() => void selectSelfServicePackage(p.id)}
+                        >
+                          Select
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+          {!planPaid && stripeSubscribable.length > 0 && (
+            <div className="stack" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e5e7eb" }}>
+              <p style={{ margin: 0, fontWeight: 600 }}>Subscribe with Stripe</p>
+              <p style={{ fontSize: 13, color: "#6b7280", margin: 0 }}>
+                You are charged only by Stripe. The app updates your package when payment completes (webhook).
+              </p>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }} className="stack">
+                {stripeSubscribable.map((p) => {
+                  const label = formatBillingPackagePrice(p);
+                  return (
+                    <li
+                      key={p.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        flexWrap: "wrap",
+                        padding: "10px 12px",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 8,
+                        background: "#fafafa",
+                      }}
+                    >
+                      <div>
+                        <strong>{p.name}</strong>
+                        {label ? (
+                          <span style={{ fontSize: 14, color: "#374151", marginLeft: 8 }}>{label}</span>
+                        ) : null}
+                        {p.description ? (
+                          <p style={{ fontSize: 13, color: "#6b7280", margin: "4px 0 0" }}>{p.description}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-primary btn-sm"
+                        disabled={busy || busySelect || !info.stripe_checkout_available}
+                        onClick={() => void startCheckout(p.id)}
+                      >
+                        Checkout
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+          {!planPaid && stripeSubscribable.length === 0 && info.stripe_checkout_available && (
+            <button type="button" className="btn-primary" disabled={busy} onClick={() => void startCheckout()}>
               Subscribe with Stripe ({stripePkgName})
             </button>
           )}
           {!info.stripe_checkout_available && !planPaid && (
             <p style={{ fontSize: 13, color: "#b45309" }}>
-              Stripe is not configured on the server (missing secret key or price ID). Ask your operator to set STRIPE_SECRET_KEY and STRIPE_PRICE_PRO_MONTHLY.
+              Stripe checkout is not available. Set <code>STRIPE_SECRET_KEY</code> and add a Stripe Price ID to at least one paid package (or set <code>STRIPE_PRICE_PRO_MONTHLY</code> for legacy single-plan checkout).
             </p>
           )}
           {info.stripe_portal_available && (

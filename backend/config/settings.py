@@ -233,12 +233,12 @@ AI_LOG_VERBOSE = os.getenv("AI_LOG_VERBOSE", "").strip().lower() in ("1", "true"
 # Optional: delete Response+Answer rows older than N days (0 = disabled). Run: python manage.py purge_old_responses
 RESPONSE_RETENTION_DAYS = int(os.getenv("RESPONSE_RETENTION_DAYS", "0"))
 
-# Billing: free tier caps owned forms; Pro via Stripe (see .env.example)
+# Billing: free tier caps owned forms; paid tiers via Stripe (see .env.example)
 FREE_TIER_MAX_FORMS = int(os.getenv("FREE_TIER_MAX_FORMS", "5"))
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
-STRIPE_PRICE_PRO_MONTHLY = os.getenv("STRIPE_PRICE_PRO_MONTHLY", "").strip()
-# Stripe subscription (active/trialing) maps user to this package slug (must exist in BillingPackage).
+STRIPE_PRICE_PRO_MONTHLY = os.getenv("STRIPE_PRICE_PRO_MONTHLY", "").strip()  # legacy single-price checkout
+# Fallback BillingPackage.slug when a subscription’s Stripe price is not linked to any package row.
 STRIPE_SUBSCRIPTION_PACKAGE_SLUG = os.getenv("STRIPE_SUBSCRIPTION_PACKAGE_SLUG", "plus").strip() or "plus"
 
 # AI/Ollama lines use a tagged formatter; keep django.server so runserver request lines still appear.

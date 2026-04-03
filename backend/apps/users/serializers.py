@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from .models import BillingPackage
@@ -11,6 +12,13 @@ _PUBLIC_ROLES = ("creator", "respondent")
 
 
 class BillingPackageSerializer(serializers.ModelSerializer):
+    """
+    Read-only package catalog. Checkout still accepts only billing_package_id — never a raw price id from the client.
+    stripe_price_id is included so superuser UIs can edit packages; it is not a secret in Stripe’s model.
+    """
+
+    stripe_subscribable = serializers.SerializerMethodField()
+
     class Meta:
         model = BillingPackage
         fields = (
@@ -24,7 +32,16 @@ class BillingPackageSerializer(serializers.ModelSerializer):
             "max_owned_forms",
             "ai_credits_per_period",
             "ai_usage_period_days",
+            "allow_self_select",
+            "stripe_price_id",
+            "price_cents",
+            "price_currency",
+            "stripe_subscribable",
         )
+        read_only_fields = ("stripe_price_id",)
+
+    def get_stripe_subscribable(self, obj):
+        return bool(obj.stripe_price_id) and not obj.is_free_tier and obj.is_active
 
 
 class BillingPackageWriteSerializer(serializers.ModelSerializer):
@@ -33,6 +50,8 @@ class BillingPackageWriteSerializer(serializers.ModelSerializer):
     max_owned_forms = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     ai_credits_per_period = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     ai_usage_period_days = serializers.IntegerField(required=False, min_value=1, max_value=366)
+    stripe_price_id = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    price_currency = serializers.CharField(required=False, allow_blank=True, max_length=3, default="usd")
 
     class Meta:
         model = BillingPackage
@@ -46,6 +65,10 @@ class BillingPackageWriteSerializer(serializers.ModelSerializer):
             "max_owned_forms",
             "ai_credits_per_period",
             "ai_usage_period_days",
+            "allow_self_select",
+            "stripe_price_id",
+            "price_cents",
+            "price_currency",
         )
 
     def validate_slug(self, value):
@@ -59,14 +82,55 @@ class BillingPackageWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Slug cannot be changed after the package is created.")
         return s
 
+    def validate_stripe_price_id(self, value):
+        if value is None or value == "":
+            return None
+        v = str(value).strip()
+        if not v:
+            return None
+        if not v.startswith("price_"):
+            raise serializers.ValidationError("Use a Stripe recurring price ID (starts with price_).")
+        return v
+
+    def validate_price_currency(self, value):
+        if not value:
+            return "usd"
+        return str(value).strip().lower()[:3] or "usd"
+
+    def validate(self, attrs):
+        inst = self.instance
+
+        def eff(key, default=None):
+            if key in attrs:
+                return attrs[key]
+            return getattr(inst, key, default) if inst is not None else default
+
+        is_free = bool(eff("is_free_tier", False))
+        is_act = bool(eff("is_active", True))
+        allow_ss = bool(eff("allow_self_select", False))
+        if "stripe_price_id" in attrs:
+            sp = attrs.get("stripe_price_id")
+        else:
+            sp = inst.stripe_price_id if inst else None
+        sp = sp or None
+
+        try:
+            BillingPackage.validate_constraints(
+                is_free_tier=is_free,
+                is_active=is_act,
+                allow_self_select=allow_ss,
+                stripe_price_id=sp,
+            )
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.message_dict if hasattr(e, "message_dict") else e)
+
+        return attrs
+
     def create(self, validated_data):
         validated_data.setdefault("ai_usage_period_days", 30)
         if not BillingPackage.objects.filter(is_free_tier=True).exists():
             validated_data["is_free_tier"] = True
-        instance = BillingPackage.objects.create(**validated_data)
-        if instance.is_free_tier:
-            BillingPackage.objects.exclude(pk=instance.pk).update(is_free_tier=False)
-        return instance
+        return BillingPackage.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
         if (
@@ -80,8 +144,6 @@ class BillingPackageWriteSerializer(serializers.ModelSerializer):
         for attr, val in validated_data.items():
             setattr(instance, attr, val)
         instance.save()
-        if instance.is_free_tier:
-            BillingPackage.objects.exclude(pk=instance.pk).update(is_free_tier=False)
         return instance
 
 

@@ -3,10 +3,10 @@ from datetime import datetime, timezone as dt_timezone
 
 import stripe
 from django.conf import settings
+from django.db.models.deletion import ProtectedError
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics, permissions, status
-from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -37,8 +37,61 @@ def _stripe_subscription_package():
     return BillingPackage.objects.filter(slug="plus").first() or _free_billing_package()
 
 
+def _subscription_primary_price_id(subscription) -> str | None:
+    """Stripe Subscription.items.data[0].price.id (dict from webhooks or StripeObject)."""
+
+    def _get(key, obj=None):
+        o = subscription if obj is None else obj
+        if isinstance(o, dict):
+            return o.get(key)
+        return getattr(o, key, None)
+
+    items = _get("items")
+    if not items:
+        return None
+    data = _get("data", items)
+    if not data:
+        return None
+    first = data[0] if isinstance(data, (list, tuple)) else None
+    if not first:
+        return None
+    price = _get("price", first)
+    if price:
+        if isinstance(price, dict):
+            pid = price.get("id")
+        else:
+            pid = getattr(price, "id", None)
+        if pid:
+            return str(pid)
+    return None
+
+
+def _billing_package_for_stripe_price(price_id: str | None) -> BillingPackage | None:
+    if not price_id:
+        return None
+    pkg = BillingPackage.objects.filter(
+        stripe_price_id=price_id,
+        is_active=True,
+        is_free_tier=False,
+    ).first()
+    if pkg:
+        return pkg
+    legacy = (getattr(settings, "STRIPE_PRICE_PRO_MONTHLY", None) or "").strip()
+    if legacy and price_id == legacy:
+        return _stripe_subscription_package()
+    return None
+
+
 def stripe_checkout_available() -> bool:
-    return bool(settings.STRIPE_SECRET_KEY and settings.STRIPE_PRICE_PRO_MONTHLY)
+    if not settings.STRIPE_SECRET_KEY:
+        return False
+    if BillingPackage.objects.filter(
+        is_active=True,
+        is_free_tier=False,
+        stripe_price_id__isnull=False,
+    ).exists():
+        return True
+    return bool(settings.STRIPE_PRICE_PRO_MONTHLY)
 
 
 def _set_stripe_key() -> None:
@@ -56,7 +109,7 @@ def apply_subscription_to_user(user: User, subscription) -> None:
         if free:
             user.billing_package = free
         user.billing_current_period_end = None
-        user.save(update_fields=["billing_package", "billing_current_period_end"])
+        user.save()
         return
 
     def _get(key):
@@ -74,7 +127,10 @@ def apply_subscription_to_user(user: User, subscription) -> None:
 
     period_end = _get("current_period_end")
     if subscription_status_grants_paid(sub_status):
-        pkg = _stripe_subscription_package()
+        price_id = _subscription_primary_price_id(subscription)
+        pkg = _billing_package_for_stripe_price(price_id)
+        if not pkg:
+            pkg = _stripe_subscription_package()
         if pkg:
             user.billing_package = pkg
         if period_end:
@@ -87,14 +143,8 @@ def apply_subscription_to_user(user: User, subscription) -> None:
             user.billing_package = free
         user.billing_current_period_end = None
 
-    user.save(
-        update_fields=[
-            "billing_package",
-            "billing_current_period_end",
-            "stripe_customer_id",
-            "stripe_subscription_id",
-        ]
-    )
+    # Full save so User.save() resets AI usage when billing_package changes.
+    user.save()
 
 
 class BillingMeView(APIView):
@@ -127,11 +177,76 @@ class BillingMeView(APIView):
                 },
                 "stripe_checkout_available": stripe_checkout_available(),
                 "stripe_portal_available": bool(request.user.stripe_customer_id),
+                "stripe_subscription_active": bool(getattr(request.user, "stripe_subscription_id", None)),
                 "stripe_subscription_package_slug": getattr(
                     settings, "STRIPE_SUBSCRIPTION_PACKAGE_SLUG", "plus"
                 )
                 or "plus",
             }
+        )
+
+
+class SelectBillingPackageView(APIView):
+    """
+    Let creators/admins pick a package marked allow_self_select (Billing page).
+    Blocked while stripe_subscription_id is set — use Stripe portal first.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsCreatorOrAdmin]
+
+    def post(self, request):
+        raw = (request.data or {}).get("billing_package_id")
+        if raw is None:
+            return Response(
+                {"detail": "billing_package_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            pk = int(raw)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "billing_package_id must be an integer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pkg = BillingPackage.objects.filter(pk=pk, is_active=True, allow_self_select=True).first()
+        if not pkg:
+            return Response(
+                {"detail": "That package is not available for self-service or is inactive."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        if getattr(user, "stripe_subscription_id", None):
+            return Response(
+                {
+                    "detail": (
+                        "You have an active subscription on file. Use “Manage subscription” to change or cancel "
+                        "in Stripe before choosing a different plan here."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if user.billing_package_id == pkg.pk:
+            return Response(
+                {
+                    "detail": "You already have this package.",
+                    "billing_package": BillingPackageSerializer(pkg).data,
+                    "billing_plan": pkg.slug,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        user.billing_package = pkg
+        user.save()
+        return Response(
+            {
+                "detail": "Package updated.",
+                "billing_package": BillingPackageSerializer(pkg).data,
+                "billing_plan": pkg.slug,
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -141,11 +256,53 @@ class CheckoutSessionView(APIView):
     def post(self, request):
         if not stripe_checkout_available():
             return Response(
-                {"detail": "Stripe checkout is not configured (keys / price ID)."},
+                {
+                    "detail": (
+                        "Stripe checkout is not configured. Set STRIPE_SECRET_KEY and either "
+                        "put a Stripe Price ID on a paid billing package or set STRIPE_PRICE_PRO_MONTHLY."
+                    )
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         _set_stripe_key()
         user = request.user
+        price_id = None
+        meta = {"user_id": str(user.id)}
+        raw_pkg = (request.data or {}).get("billing_package_id")
+        if raw_pkg is not None:
+            try:
+                pkg_pk = int(raw_pkg)
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "billing_package_id must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            pkg = BillingPackage.objects.filter(
+                pk=pkg_pk,
+                is_active=True,
+                is_free_tier=False,
+                stripe_price_id__isnull=False,
+            ).first()
+            if not pkg:
+                return Response(
+                    {"detail": "That package is not available for Stripe checkout."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            price_id = pkg.stripe_price_id
+            meta["billing_package_id"] = str(pkg_pk)
+        else:
+            price_id = (getattr(settings, "STRIPE_PRICE_PRO_MONTHLY", None) or "").strip() or None
+            if not price_id:
+                return Response(
+                    {
+                        "detail": (
+                            "Choose a plan (billing_package_id) or ask your operator to set "
+                            "STRIPE_PRICE_PRO_MONTHLY for legacy single-price checkout."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         base = settings.FRONTEND_BASE_URL.rstrip("/")
         if not user.stripe_customer_id:
             customer = stripe.Customer.create(
@@ -158,11 +315,11 @@ class CheckoutSessionView(APIView):
         session = stripe.checkout.Session.create(
             mode="subscription",
             customer=user.stripe_customer_id,
-            line_items=[{"price": settings.STRIPE_PRICE_PRO_MONTHLY, "quantity": 1}],
+            line_items=[{"price": price_id, "quantity": 1}],
             success_url=f"{base}/billing?upgraded=1",
             cancel_url=f"{base}/billing?canceled=1",
-            metadata={"user_id": str(user.id)},
-            subscription_data={"metadata": {"user_id": str(user.id)}},
+            metadata=meta,
+            subscription_data={"metadata": dict(meta)},
         )
         return Response({"url": session.url}, status=status.HTTP_201_CREATED)
 
@@ -270,13 +427,7 @@ class StripeWebhookView(APIView):
         if free:
             user.billing_package = free
         user.billing_current_period_end = None
-        user.save(
-            update_fields=[
-                "stripe_subscription_id",
-                "billing_package",
-                "billing_current_period_end",
-            ]
-        )
+        user.save()
 
     def _user_for_stripe_customer(self, customer_id, sub_id):
         if not customer_id:
@@ -338,28 +489,46 @@ class BillingPackageDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance.refresh_from_db()
         return Response(BillingPackageSerializer(instance).data)
 
-    def perform_destroy(self, instance):
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
         user_count = User.objects.filter(billing_package=instance).count()
         if user_count:
-            raise ValidationError(
+            return Response(
                 {
                     "detail": (
                         f"Cannot delete this package: {user_count} user(s) are assigned to it. "
                         "Reassign them in User management first."
                     )
-                }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
         if BillingPackage.objects.count() <= 1:
-            raise ValidationError({"detail": "Cannot delete the last billing package."})
+            return Response(
+                {"detail": "Cannot delete the last billing package."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if instance.is_free_tier:
             other_free = BillingPackage.objects.exclude(pk=instance.pk).filter(is_free_tier=True).exists()
             if not other_free:
-                raise ValidationError(
+                return Response(
                     {
                         "detail": (
-                            "Cannot delete the free-tier package while no other package is marked as free. "
-                            "Edit another package and set it as the free tier first."
+                            "This row is still marked as the free tier. Edit another package, enable "
+                            '"Free tier" there first (that clears this one), then delete this package.'
                         )
-                    }
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-        instance.delete()
+        try:
+            instance.delete()
+        except ProtectedError:
+            return Response(
+                {
+                    "detail": (
+                        "This package is still in use (e.g. users assigned). "
+                        "Reassign those accounts first."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
