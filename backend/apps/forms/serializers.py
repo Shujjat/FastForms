@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from apps.users.avatar import gravatar_url
+from apps.users.billing_plan import plan_is_free
 from apps.users.models import User
 
 from .models import Answer, Form, FormCollaborator, Question, Response
@@ -80,7 +81,7 @@ class FormSerializer(serializers.ModelSerializer):
         owner = getattr(obj, "owner", None)
         if not owner:
             return True
-        return getattr(owner, "billing_plan", User.BillingPlan.FREE) == User.BillingPlan.FREE
+        return plan_is_free(owner)
 
 
 class FormCreateSerializer(serializers.ModelSerializer):
@@ -224,7 +225,15 @@ class ResponseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Response
-        fields = ("id", "form_id", "respondent_id", "submitted_at", "answers")
+        fields = (
+            "id",
+            "form_id",
+            "respondent_id",
+            "submitted_at",
+            "answers",
+            "ai_narration",
+            "ai_narration_generated_at",
+        )
 
 
 class CollaboratorSerializer(serializers.ModelSerializer):

@@ -37,7 +37,7 @@ class UserManagementListCreateView(generics.ListCreateAPIView):
         return AdminUserReadSerializer
 
     def get_queryset(self):
-        qs = User.objects.all().order_by("-date_joined")
+        qs = User.objects.all().order_by("-date_joined").select_related("billing_package")
         search = (self.request.query_params.get("search") or "").strip()
         if search:
             qs = qs.filter(
@@ -68,7 +68,7 @@ class UserManagementDetailView(generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE single user. DELETE soft-deactivates (sets is_active=False)."""
 
     permission_classes = [IsAdminUser]
-    queryset = User.objects.all()
+    queryset = User.objects.all().select_related("billing_package")
 
     def get_serializer_class(self):
         if self.request.method in ("PATCH", "PUT"):

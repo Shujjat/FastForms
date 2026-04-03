@@ -39,9 +39,11 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
+    "drf_spectacular",
     "apps.users",
     "apps.forms",
     "apps.llm",
+    "apps.public_api",
 ]
 
 MIDDLEWARE = [
@@ -149,9 +151,47 @@ REST_FRAMEWORK = {
         "user": "1000/hour",
         "auth": "30/hour",
         "ai": "60/hour",
+        "api_key": os.getenv("API_KEY_THROTTLE_RATE", "2000/hour"),
     },
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# OpenAPI / Swagger: only integration routes are included (see apps.public_api.schema_hooks).
+ENABLE_API_DOCS = os.getenv("ENABLE_API_DOCS", "True").lower() == "true"
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "FastForms integration API",
+    "DESCRIPTION": (
+        "**Public API v1** (`/api/v1/…`) uses `X-Api-Key` (or `Authorization: Api-Key …`). "
+        "Create and revoke keys with a normal user session: `POST /api/auth/api-keys` with JWT. "
+        "Browser and mobile apps typically use JWT under `/api/auth/login` instead; that surface is not fully documented here."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "PREPROCESSING_HOOKS": ["apps.public_api.schema_hooks.filter_public_endpoints"],
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "apps.public_api.schema_hooks.add_security_to_documented_paths",
+    ],
+    "APPEND_COMPONENTS": {
+        "securitySchemes": {
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-Api-Key",
+                "description": "Integration secret from POST /api/auth/api-keys (shown once).",
+            },
+            "jwtAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Obtain with POST /api/auth/login (username/password). Used only for API key management here.",
+            },
+        }
+    },
 }
 
 SIMPLE_JWT = {
@@ -198,6 +238,8 @@ FREE_TIER_MAX_FORMS = int(os.getenv("FREE_TIER_MAX_FORMS", "5"))
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
 STRIPE_PRICE_PRO_MONTHLY = os.getenv("STRIPE_PRICE_PRO_MONTHLY", "").strip()
+# Stripe subscription (active/trialing) maps user to this package slug (must exist in BillingPackage).
+STRIPE_SUBSCRIPTION_PACKAGE_SLUG = os.getenv("STRIPE_SUBSCRIPTION_PACKAGE_SLUG", "plus").strip() or "plus"
 
 # AI/Ollama lines use a tagged formatter; keep django.server so runserver request lines still appear.
 LOGGING = {

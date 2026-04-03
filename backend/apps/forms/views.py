@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import permissions, status, viewsets
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -28,8 +28,13 @@ from .serializers import (
 )
 from .tasks import send_new_response_notification_task
 from .template_loader import get_template, list_template_summaries
+from apps.llm.client import is_llm_configured
+from apps.llm.views import AiUserThrottle
 from apps.users.avatar import gravatar_url
 from apps.users.billing_limits import assert_can_create_owned_form
+from apps.users.package_usage import assert_ai_credits_available, consume_ai_credits
+
+from .response_ai import generate_and_save_form_responses_summary, generate_and_save_response_narration
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +163,9 @@ class FormViewSet(viewsets.ModelViewSet):
         qs = FormResponse.objects.filter(form=form)
         n = qs.count()
         qs.delete()
+        form.responses_ai_summary = ""
+        form.responses_ai_summary_generated_at = None
+        form.save(update_fields=["responses_ai_summary", "responses_ai_summary_generated_at"])
         logger.info(
             "forms_clear_responses user_id=%s form_id=%s deleted_count=%s",
             getattr(request.user, "id", None),
@@ -449,6 +457,8 @@ def analytics(request, form_id):
             "required": q.required,
         }
 
+        entry["options"] = list(q.options) if q.options else []
+
         if q.question_type in {"single_choice", "dropdown"}:
             counts = {}
             for v in values:
@@ -484,6 +494,8 @@ def analytics(request, form_id):
             "total_responses": total_responses,
             "questions": question_stats,
             "latest_submitted_at": responses[0].submitted_at if responses else None,
+            "responses_ai_summary": form.responses_ai_summary or "",
+            "responses_ai_summary_generated_at": form.responses_ai_summary_generated_at,
         }
     )
 
@@ -595,3 +607,130 @@ def create_form_from_template(request):
     except ValidationError as e:
         return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
     return Response(FormSerializer(form, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+
+def _form_owned_by_user(user, form_id):
+    return Form.objects.filter(id=form_id, owner=user).first()
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def visualization_matrix(request, form_id):
+    """
+    Full question metadata and all responses with answers for charts and regression (owner only).
+    """
+    form = _form_owned_by_user(request.user, form_id)
+    if not form:
+        return Response({"detail": "Form not found."}, status=status.HTTP_404_NOT_FOUND)
+    questions = list(Question.objects.filter(form=form).order_by("order_index", "id"))
+    questions_meta = [
+        {
+            "id": q.id,
+            "text": q.text,
+            "question_type": q.question_type,
+            "options": list(q.options) if q.options else [],
+        }
+        for q in questions
+    ]
+    responses = (
+        FormResponse.objects.filter(form=form)
+        .prefetch_related("answers")
+        .order_by("-submitted_at")
+    )
+    rows = []
+    for r in responses:
+        rows.append(
+            {
+                "id": r.id,
+                "submitted_at": r.submitted_at.isoformat(),
+                "answers": [
+                    {"question_id": a.question_id, "value": a.value} for a in r.answers.all()
+                ],
+            }
+        )
+    return Response({"questions": questions_meta, "responses": rows})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+@throttle_classes([AiUserThrottle])
+def generate_response_ai_narration(request, form_id, response_id):
+    """Generate (or regenerate) an AI narration for one response; requires Ollama."""
+    form = _form_owned_by_user(request.user, form_id)
+    if not form:
+        return Response({"detail": "Form not found."}, status=status.HTTP_404_NOT_FOUND)
+    resp = (
+        FormResponse.objects.filter(pk=response_id, form=form)
+        .prefetch_related("answers", "answers__question")
+        .first()
+    )
+    if not resp:
+        return Response({"detail": "Response not found."}, status=status.HTTP_404_NOT_FOUND)
+    if not is_llm_configured():
+        return Response(
+            {
+                "detail": "AI is not configured. Set LLM_PROVIDER=ollama and OLLAMA_BASE_URL (see backend .env.example)."
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    try:
+        assert_ai_credits_available(request.user)
+    except ValidationError as e:
+        return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        text = generate_and_save_response_narration(form, resp)
+    except RuntimeError as e:
+        logger.warning(
+            "generate_response_ai_narration failed form_id=%s response_id=%s: %s",
+            form_id,
+            response_id,
+            e,
+        )
+        return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+    consume_ai_credits(request.user)
+    return Response(
+        ResponseSerializer(resp).data,
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+@throttle_classes([AiUserThrottle])
+def generate_form_ai_responses_summary(request, form_id):
+    """Generate (or regenerate) an AI summary across all responses on the form."""
+    form = _form_owned_by_user(request.user, form_id)
+    if not form:
+        return Response({"detail": "Form not found."}, status=status.HTTP_404_NOT_FOUND)
+    if not is_llm_configured():
+        return Response(
+            {
+                "detail": "AI is not configured. Set LLM_PROVIDER=ollama and OLLAMA_BASE_URL (see backend .env.example)."
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    responses = list(
+        FormResponse.objects.filter(form=form)
+        .prefetch_related("answers", "answers__question")
+        .order_by("submitted_at")
+    )
+    if not responses:
+        return Response({"detail": "No responses to summarize."}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        assert_ai_credits_available(request.user)
+    except ValidationError as e:
+        return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        generate_and_save_form_responses_summary(form, responses)
+    except RuntimeError as e:
+        logger.warning("generate_form_ai_responses_summary failed form_id=%s: %s", form_id, e)
+        return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+    consume_ai_credits(request.user)
+    form = Form.objects.get(pk=form.pk)
+    return Response(
+        {
+            "responses_ai_summary": form.responses_ai_summary,
+            "responses_ai_summary_generated_at": form.responses_ai_summary_generated_at,
+        },
+        status=status.HTTP_200_OK,
+    )

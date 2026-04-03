@@ -5,16 +5,36 @@ import stripe
 from django.conf import settings
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import permissions, status
+from rest_framework import generics, permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.forms.models import Form
 from apps.forms.permissions import IsCreatorOrAdmin
 
-from .models import User
+from .models import BillingPackage, User
+from .package_usage import ai_period_end_utc, max_owned_forms_cap
+from .permissions import IsDjangoSuperuser
+from .serializers import BillingPackageSerializer, BillingPackageWriteSerializer
 
 logger = logging.getLogger(__name__)
+
+
+def _free_billing_package():
+    return BillingPackage.objects.filter(slug="free").first()
+
+
+def _stripe_subscription_package():
+    slug = getattr(settings, "STRIPE_SUBSCRIPTION_PACKAGE_SLUG", "plus") or "plus"
+    pkg = BillingPackage.objects.filter(slug=slug).first()
+    if pkg:
+        return pkg
+    logger.warning(
+        "BillingPackage slug %r missing (STRIPE_SUBSCRIPTION_PACKAGE_SLUG); trying plus, then free.",
+        slug,
+    )
+    return BillingPackage.objects.filter(slug="plus").first() or _free_billing_package()
 
 
 def stripe_checkout_available() -> bool:
@@ -25,16 +45,18 @@ def _set_stripe_key() -> None:
     stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
-def subscription_status_grants_pro(sub_status: str) -> bool:
+def subscription_status_grants_paid(sub_status: str) -> bool:
     return sub_status in ("active", "trialing", "past_due")
 
 
 def apply_subscription_to_user(user: User, subscription) -> None:
     """Update user billing fields from a Stripe Subscription object or dict-like."""
     if subscription is None:
-        user.billing_plan = User.BillingPlan.FREE
+        free = _free_billing_package()
+        if free:
+            user.billing_package = free
         user.billing_current_period_end = None
-        user.save(update_fields=["billing_plan", "billing_current_period_end"])
+        user.save(update_fields=["billing_package", "billing_current_period_end"])
         return
 
     def _get(key):
@@ -51,19 +73,23 @@ def apply_subscription_to_user(user: User, subscription) -> None:
         user.stripe_subscription_id = sub_id
 
     period_end = _get("current_period_end")
-    if subscription_status_grants_pro(sub_status):
-        user.billing_plan = User.BillingPlan.PRO
+    if subscription_status_grants_paid(sub_status):
+        pkg = _stripe_subscription_package()
+        if pkg:
+            user.billing_package = pkg
         if period_end:
             user.billing_current_period_end = datetime.fromtimestamp(
                 int(period_end), tz=dt_timezone.utc
             )
     else:
-        user.billing_plan = User.BillingPlan.FREE
+        free = _free_billing_package()
+        if free:
+            user.billing_package = free
         user.billing_current_period_end = None
 
     user.save(
         update_fields=[
-            "billing_plan",
+            "billing_package",
             "billing_current_period_end",
             "stripe_customer_id",
             "stripe_subscription_id",
@@ -76,14 +102,35 @@ class BillingMeView(APIView):
 
     def get(self, request):
         owned = Form.objects.filter(owner=request.user).count()
+        pkg = request.user.billing_package
+        cap = max_owned_forms_cap(request.user)
+        period_end = ai_period_end_utc(request.user)
         return Response(
             {
-                "billing_plan": request.user.billing_plan,
+                "billing_plan": pkg.slug if pkg else "free",
+                "billing_package": BillingPackageSerializer(pkg).data if pkg else None,
                 "billing_current_period_end": request.user.billing_current_period_end,
                 "owned_forms_count": owned,
-                "free_tier_max_forms": settings.FREE_TIER_MAX_FORMS,
+                "free_tier_max_forms": cap
+                if cap is not None
+                else settings.FREE_TIER_MAX_FORMS,
+                "usage": {
+                    "max_owned_forms": cap,
+                    "owned_forms_count": owned,
+                    "at_owned_forms_limit": cap is not None and owned >= cap,
+                    "ai_credits_limit": pkg.ai_credits_per_period if pkg else None,
+                    "ai_credits_used": request.user.ai_credits_used,
+                    "ai_usage_period_days": (
+                        pkg.ai_usage_period_days if pkg and pkg.ai_credits_per_period else None
+                    ),
+                    "ai_credits_period_ends_at": period_end.isoformat() if period_end else None,
+                },
                 "stripe_checkout_available": stripe_checkout_available(),
                 "stripe_portal_available": bool(request.user.stripe_customer_id),
+                "stripe_subscription_package_slug": getattr(
+                    settings, "STRIPE_SUBSCRIPTION_PACKAGE_SLUG", "plus"
+                )
+                or "plus",
             }
         )
 
@@ -219,12 +266,14 @@ class StripeWebhookView(APIView):
             return
         if user.stripe_subscription_id == sub_id:
             user.stripe_subscription_id = ""
-        user.billing_plan = User.BillingPlan.FREE
+        free = _free_billing_package()
+        if free:
+            user.billing_package = free
         user.billing_current_period_end = None
         user.save(
             update_fields=[
                 "stripe_subscription_id",
-                "billing_plan",
+                "billing_package",
                 "billing_current_period_end",
             ]
         )
@@ -239,3 +288,78 @@ class StripeWebhookView(APIView):
         if sub_id:
             return User.objects.filter(stripe_subscription_id=sub_id).first()
         return None
+
+
+class BillingPackagesListCreateView(generics.ListCreateAPIView):
+    """GET: list packages (any authenticated user). POST: create (superuser)."""
+
+    queryset = BillingPackage.objects.all().order_by("sort_order", "id")
+    # Global DRF PageNumberPagination would wrap the list in { results, count }; keep a plain array for UIs.
+    pagination_class = None
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [permissions.IsAuthenticated(), IsDjangoSuperuser()]
+        return [permissions.IsAuthenticated()]
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return BillingPackageWriteSerializer
+        return BillingPackageSerializer
+
+    def create(self, request, *args, **kwargs):
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        instance = ser.save()
+        return Response(BillingPackageSerializer(instance).data, status=status.HTTP_201_CREATED)
+
+
+class BillingPackageDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """GET: package detail. PATCH/DELETE: superuser."""
+
+    queryset = BillingPackage.objects.all()
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsDjangoSuperuser()]
+
+    def get_serializer_class(self):
+        if self.request.method in ("PATCH", "PUT"):
+            return BillingPackageWriteSerializer
+        return BillingPackageSerializer
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        ser = self.get_serializer(instance, data=request.data, partial=partial)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        instance.refresh_from_db()
+        return Response(BillingPackageSerializer(instance).data)
+
+    def perform_destroy(self, instance):
+        user_count = User.objects.filter(billing_package=instance).count()
+        if user_count:
+            raise ValidationError(
+                {
+                    "detail": (
+                        f"Cannot delete this package: {user_count} user(s) are assigned to it. "
+                        "Reassign them in User management first."
+                    )
+                }
+            )
+        if BillingPackage.objects.count() <= 1:
+            raise ValidationError({"detail": "Cannot delete the last billing package."})
+        if instance.is_free_tier:
+            other_free = BillingPackage.objects.exclude(pk=instance.pk).filter(is_free_tier=True).exists()
+            if not other_free:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            "Cannot delete the free-tier package while no other package is marked as free. "
+                            "Edit another package and set it as the free tier first."
+                        )
+                    }
+                )
+        instance.delete()

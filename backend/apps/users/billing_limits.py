@@ -1,28 +1,26 @@
-"""Free-tier limits on resources owned by the billing account (e.g. forms)."""
+"""Limits on resources owned by the billing account, driven by BillingPackage."""
 
-from django.conf import settings
-from django.contrib.auth import get_user_model
 from rest_framework.exceptions import ValidationError
 
 from apps.forms.models import Form
 
-User = get_user_model()
+from .package_usage import max_owned_forms_cap
 
 
 def assert_can_create_owned_form(user) -> None:
     """Raise ValidationError if the user cannot create another form they own."""
     if not user or not user.is_authenticated:
         return
-    if getattr(user, "billing_plan", User.BillingPlan.FREE) == User.BillingPlan.PRO:
+    cap = max_owned_forms_cap(user)
+    if cap is None:
         return
-    max_forms = int(getattr(settings, "FREE_TIER_MAX_FORMS", 5))
     owned = Form.objects.filter(owner=user).count()
-    if owned >= max_forms:
+    if owned >= cap:
         raise ValidationError(
             {
                 "detail": (
-                    f"Free plan allows up to {max_forms} forms you own. "
-                    "Upgrade to Pro to create more."
+                    f"Your package allows up to {cap} forms you own. "
+                    "Upgrade your package or delete forms you no longer need."
                 )
             }
         )

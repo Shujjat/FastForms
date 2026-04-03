@@ -1,5 +1,7 @@
+from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 from apps.users.auth_views import PasswordResetConfirmView, PasswordResetRequestView
 from apps.users.google_views import GoogleAuthView
@@ -16,5 +18,13 @@ urlpatterns = [
     path("api/users/", include("apps.users.management_urls")),
     path("api/ai/", include("apps.llm.urls")),
     path("api/billing/", include("apps.users.billing_urls")),
+    path("api/v1/", include("apps.public_api.urls")),
     path("api/", include("apps.forms.urls")),
 ]
+
+if getattr(settings, "ENABLE_API_DOCS", True):
+    urlpatterns += [
+        path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+        path("api/docs/swagger/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+        path("api/docs/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    ]

@@ -29,6 +29,8 @@ class Form(models.Model):
     fill_mode = models.CharField(max_length=20, choices=FillMode.choices, default=FillMode.ALL_AT_ONCE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    responses_ai_summary = models.TextField(blank=True, default="")
+    responses_ai_summary_generated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at"]
@@ -64,6 +66,8 @@ class Response(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="responses"
     )
     submitted_at = models.DateTimeField(auto_now_add=True)
+    ai_narration = models.TextField(blank=True, default="")
+    ai_narration_generated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

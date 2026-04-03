@@ -6,10 +6,13 @@ from .views import (
     analytics,
     create_form_from_template,
     export_responses,
+    generate_form_ai_responses_summary,
+    generate_response_ai_narration,
     list_form_templates,
     list_responses,
     submit_response,
     update_or_delete_question,
+    visualization_matrix,
 )
 
 router = DefaultRouter(trailing_slash=False)
@@ -20,8 +23,19 @@ urlpatterns = [
     path("forms/from_template", create_form_from_template, name="forms-from-template"),
     path("", include(router.urls)),
     path("forms/<int:form_id>/submit", submit_response, name="submit-response"),
+    path(
+        "forms/<int:form_id>/responses/<int:response_id>/ai_narration",
+        generate_response_ai_narration,
+        name="response-ai-narration",
+    ),
+    path(
+        "forms/<int:form_id>/ai_responses_summary",
+        generate_form_ai_responses_summary,
+        name="form-ai-responses-summary",
+    ),
     path("forms/<int:form_id>/responses", list_responses, name="list-responses"),
     path("forms/<int:form_id>/analytics", analytics, name="analytics"),
+    path("forms/<int:form_id>/viz_matrix", visualization_matrix, name="viz-matrix"),
     path("forms/<int:form_id>/export", export_responses, name="export-responses"),
     path("questions/<int:question_id>", update_or_delete_question, name="question-detail"),
 ]

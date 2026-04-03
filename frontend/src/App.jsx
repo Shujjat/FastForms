@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { api, downloadFormExport, formatApiError, setAuthToken, setRefreshToken } from "./api";
+import { api, downloadFormExport, formatApiError, getApiBaseUrl, normalizeListResponse, setAuthToken, setRefreshToken } from "./api";
+import { AnalyticsVizExplore } from "./AnalyticsVizExplore.jsx";
 
 const ROLE_OPTIONS = [
   { value: "admin", label: "Admin" },
@@ -9,6 +10,7 @@ const ROLE_OPTIONS = [
   { value: "analyst", label: "Analyst" },
   { value: "respondent", label: "Respondent" },
 ];
+
 import { GoogleSignInButton } from "./GoogleSignInButton";
 
 /** Local datetime-local value from ISO string (browser timezone). */
@@ -420,10 +422,17 @@ function AdminRoute({ children }) {
   return children;
 }
 
+function SuperuserRoute({ children }) {
+  const { isAuthed, user } = useAuth();
+  if (!isAuthed) return <Navigate to="/login" replace />;
+  if (!user?.is_superuser) return <Navigate to="/" replace />;
+  return children;
+}
+
 // --- Layout ---
 
 function Layout({ children }) {
-  const { isAuthed, isAdminUser, userRole, refreshAuth } = useAuth();
+  const { isAuthed, isAdminUser, userRole, user, refreshAuth } = useAuth();
   const navigate = useNavigate();
   const logout = () => {
     setAuthToken(null);
@@ -439,7 +448,9 @@ function Layout({ children }) {
           <Link to="/">Forms</Link>
           <Link to="/templates">Templates</Link>
           {isAuthed && ["creator", "admin"].includes(userRole || "") && <Link to="/billing">Billing</Link>}
+          {isAuthed && <Link to="/integrations">Integrations</Link>}
           {isAuthed && isAdminUser && <Link to="/admin/users">Users</Link>}
+          {isAuthed && user?.is_superuser && <Link to="/admin/packages">Packages</Link>}
           {!isAuthed && <Link to="/register">Register</Link>}
           {!isAuthed && <Link to="/login">Login</Link>}
           {isAuthed && (
@@ -777,10 +788,274 @@ function TemplatesPage() {
   );
 }
 
+// --- Admin: billing packages (superuser) ---
+
+function packagesOptionalPositiveInt(v) {
+  if (v === "" || v == null) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return n;
+}
+
+function PackagesPage() {
+  const [rows, setRows] = useState([]);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({
+    slug: "",
+    name: "",
+    description: "",
+    sort_order: 0,
+    is_active: true,
+    is_free_tier: false,
+    max_owned_forms: "",
+    ai_credits_per_period: "",
+    ai_usage_period_days: "30",
+  });
+
+  const load = async () => {
+    setErr("");
+    try {
+      const { data } = await api.get("/api/billing/packages");
+      setRows(normalizeListResponse(data));
+    } catch (e) {
+      setErr(formatApiError(e));
+      setRows([]);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setForm({
+      slug: "",
+      name: "",
+      description: "",
+      sort_order: 0,
+      is_active: true,
+      is_free_tier: false,
+      max_owned_forms: "",
+      ai_credits_per_period: "",
+      ai_usage_period_days: "30",
+    });
+  };
+
+  const startEdit = (p) => {
+    setEditingId(p.id);
+    setForm({
+      slug: p.slug,
+      name: p.name,
+      description: p.description || "",
+      sort_order: p.sort_order ?? 0,
+      is_active: Boolean(p.is_active),
+      is_free_tier: Boolean(p.is_free_tier),
+      max_owned_forms: p.max_owned_forms != null ? String(p.max_owned_forms) : "",
+      ai_credits_per_period: p.ai_credits_per_period != null ? String(p.ai_credits_per_period) : "",
+      ai_usage_period_days: String(p.ai_usage_period_days ?? 30),
+    });
+    setMsg("");
+    setErr("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const savePackage = async (e) => {
+    e.preventDefault();
+    setErr("");
+    setMsg("");
+    const payload = {
+      slug: form.slug.trim().toLowerCase(),
+      name: form.name.trim(),
+      description: form.description.trim(),
+      sort_order: Number(form.sort_order) || 0,
+      is_active: form.is_active,
+      is_free_tier: form.is_free_tier,
+      max_owned_forms: packagesOptionalPositiveInt(form.max_owned_forms),
+      ai_credits_per_period: packagesOptionalPositiveInt(form.ai_credits_per_period),
+      ai_usage_period_days: Number(form.ai_usage_period_days) || 30,
+    };
+    try {
+      if (editingId == null) {
+        await api.post("/api/billing/packages", payload);
+        setMsg("Package created.");
+      } else {
+        await api.patch(`/api/billing/packages/${editingId}`, payload);
+        setMsg("Package updated.");
+      }
+      resetForm();
+      await load();
+    } catch (e) {
+      setErr(formatApiError(e));
+    }
+  };
+
+  const remove = async (p) => {
+    if (!window.confirm(`Delete package “${p.name}” (${p.slug})? This cannot be undone.`)) return;
+    setErr("");
+    setMsg("");
+    try {
+      await api.delete(`/api/billing/packages/${p.id}`);
+      setMsg("Package deleted.");
+      if (editingId === p.id) resetForm();
+      await load();
+    } catch (e) {
+      setErr(formatApiError(e));
+    }
+  };
+
+  return (
+    <Layout>
+      <div style={{ maxWidth: 960, margin: "0 auto" }}>
+        <h2>Billing packages</h2>
+        <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8 }}>
+          Create and edit sellable tiers. Set <strong>max owned forms</strong> and <strong>AI credits per period</strong> (leave blank for unlimited). Exactly one package should be the free tier (<strong>is free tier</strong>). Stripe uses{" "}
+          <code>STRIPE_SUBSCRIPTION_PACKAGE_SLUG</code>. You cannot delete a package while users are still assigned to it.
+        </p>
+        {msg && <p className="msg">{msg}</p>}
+        {err && <p className="msg msg-error">{err}</p>}
+
+        <div className="card stack" style={{ marginBottom: 24 }}>
+          <h3 style={{ marginTop: 0 }}>{editingId == null ? "New package" : `Edit package #${editingId}`}</h3>
+          <form onSubmit={savePackage} className="stack" style={{ maxWidth: 520 }}>
+            <input
+              required
+              placeholder="Slug (e.g. enterprise)"
+              value={form.slug}
+              onChange={(e) => setForm({ ...form, slug: e.target.value })}
+              disabled={editingId != null}
+              title="Slug cannot be changed after create"
+            />
+            {editingId != null && (
+              <p style={{ fontSize: 12, color: "#6b7280", margin: "-4px 0 0" }}>Slug is fixed after creation.</p>
+            )}
+            <input required placeholder="Display name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <textarea
+              placeholder="Description (optional)"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              rows={3}
+            />
+            <label style={{ fontSize: 13 }}>
+              Sort order
+              <input
+                type="number"
+                min={0}
+                value={form.sort_order}
+                onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
+                style={{ display: "block", marginTop: 6, width: "100%", padding: "8px" }}
+              />
+            </label>
+            <label style={{ fontSize: 13 }}>
+              Max owned forms (blank = unlimited)
+              <input
+                type="number"
+                min={1}
+                placeholder="e.g. 5"
+                value={form.max_owned_forms}
+                onChange={(e) => setForm({ ...form, max_owned_forms: e.target.value })}
+                style={{ display: "block", marginTop: 6, width: "100%", padding: "8px" }}
+              />
+            </label>
+            <label style={{ fontSize: 13 }}>
+              AI credits per period (blank = unlimited)
+              <input
+                type="number"
+                min={1}
+                placeholder="e.g. 100"
+                value={form.ai_credits_per_period}
+                onChange={(e) => setForm({ ...form, ai_credits_per_period: e.target.value })}
+                style={{ display: "block", marginTop: 6, width: "100%", padding: "8px" }}
+              />
+            </label>
+            <label style={{ fontSize: 13 }}>
+              AI period length (days)
+              <input
+                type="number"
+                min={1}
+                max={366}
+                value={form.ai_usage_period_days}
+                onChange={(e) => setForm({ ...form, ai_usage_period_days: e.target.value })}
+                style={{ display: "block", marginTop: 6, width: "100%", padding: "8px" }}
+              />
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+              <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+              Active (shown in pickers by default)
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+              <input type="checkbox" checked={form.is_free_tier} onChange={(e) => setForm({ ...form, is_free_tier: e.target.checked })} />
+              Free tier (form limits &amp; branding; only one should be checked)
+            </label>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button type="submit" className="btn-primary">
+                {editingId == null ? "Create package" : "Save changes"}
+              </button>
+              {editingId != null && (
+                <button type="button" className="btn-secondary" onClick={resetForm}>
+                  Cancel edit
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+
+        <div className="card" style={{ overflowX: "auto" }}>
+          <table className="admin-user-table">
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Slug</th>
+                <th>Name</th>
+                <th>Forms max</th>
+                <th>AI / period</th>
+                <th>Active</th>
+                <th>Free</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => (
+                <tr key={p.id}>
+                  <td style={{ fontVariantNumeric: "tabular-nums" }}>{p.sort_order}</td>
+                  <td>
+                    <code style={{ fontSize: 12 }}>{p.slug}</code>
+                  </td>
+                  <td>{p.name}</td>
+                  <td style={{ fontSize: 13 }}>{p.max_owned_forms ?? "∞"}</td>
+                  <td style={{ fontSize: 13 }}>
+                    {p.ai_credits_per_period != null
+                      ? `${p.ai_credits_per_period} / ${p.ai_usage_period_days ?? 30}d`
+                      : "∞"}
+                  </td>
+                  <td>{p.is_active ? "Yes" : "No"}</td>
+                  <td>{p.is_free_tier ? "Yes" : "—"}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <button type="button" className="btn-secondary btn-sm" onClick={() => startEdit(p)}>
+                      Edit
+                    </button>
+                    <button type="button" className="btn-danger btn-sm" style={{ marginLeft: 6 }} onClick={() => void remove(p)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length === 0 && <p style={{ padding: 16, color: "#9ca3af" }}>No packages loaded.</p>}
+        </div>
+      </div>
+    </Layout>
+  );
+}
+
 // --- Admin: user management ---
 
 function UsersPage() {
   const { user: currentUser } = useAuth();
+  const [packages, setPackages] = useState([]);
   const [rows, setRows] = useState([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -801,9 +1076,25 @@ function UsersPage() {
     organization: "",
     is_active: true,
     is_staff: false,
+    billing_package: "",
   });
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get("/api/billing/packages");
+        if (!cancelled) setPackages(normalizeListResponse(data));
+      } catch {
+        if (!cancelled) setPackages([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const load = async (p = page) => {
     setErr("");
@@ -841,6 +1132,7 @@ function UsersPage() {
       is_active: u.is_active,
       is_staff: u.is_staff,
       password: "",
+      billing_package: u.billing_package?.id ?? "",
     });
     setMsg("");
     setErr("");
@@ -852,6 +1144,10 @@ function UsersPage() {
     try {
       const payload = { ...editDraft };
       if (!payload.password || !payload.password.trim()) delete payload.password;
+      if (!currentUser?.is_superuser) delete payload.billing_package;
+      else if (payload.billing_package === "" || payload.billing_package == null) {
+        delete payload.billing_package;
+      }
       await api.patch(`/api/users/${editingId}/`, payload);
       setEditingId(null);
       setEditDraft(null);
@@ -867,7 +1163,19 @@ function UsersPage() {
     setErr("");
     try {
       const payload = { ...newUser };
-      if (!currentUser?.is_superuser) delete payload.is_staff;
+      if (!currentUser?.is_superuser) {
+        delete payload.is_staff;
+        delete payload.billing_package;
+      } else {
+        const free = packages.find((p) => p.is_free_tier);
+        if (payload.billing_package === "" || payload.billing_package == null) {
+          if (free) payload.billing_package = free.id;
+        }
+        if (payload.billing_package === "" || payload.billing_package == null) {
+          setErr("Billing packages are not loaded yet, or no free tier is configured. Try again.");
+          return;
+        }
+      }
       await api.post("/api/users/", payload);
       setMsg("User created.");
       setCreating(false);
@@ -882,6 +1190,7 @@ function UsersPage() {
         organization: "",
         is_active: true,
         is_staff: false,
+        billing_package: "",
       });
       await load(1);
     } catch (e) {
@@ -912,6 +1221,9 @@ function UsersPage() {
         </div>
         <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8 }}>
           Search and filter accounts, assign roles, activate or deactivate users, and set passwords. Only application admins and superusers see this page.
+          {currentUser?.is_superuser && (
+            <span> Superusers can assign billing packages from the catalog (add or edit rows in Django admin → Billing packages).</span>
+          )}
         </p>
         {msg && <p className="msg">{msg}</p>}
         {err && <p className="msg msg-error">{err}</p>}
@@ -993,6 +1305,29 @@ function UsersPage() {
                   Django staff (can access /admin/)
                 </label>
               )}
+              {currentUser?.is_superuser && (
+                <label style={{ fontSize: 13 }}>
+                  Billing package
+                  <select
+                    value={newUser.billing_package === "" ? "" : String(newUser.billing_package)}
+                    onChange={(e) =>
+                      setNewUser({
+                        ...newUser,
+                        billing_package: e.target.value ? Number(e.target.value) : "",
+                      })
+                    }
+                    style={{ display: "block", marginTop: 6, width: "100%", padding: "8px" }}
+                  >
+                    <option value="">— Select —</option>
+                    {packages.map((p) => (
+                      <option key={p.id} value={String(p.id)}>
+                        {p.name}
+                        {!p.is_active ? " (inactive)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <button type="submit" className="btn-primary">
                 Create user
               </button>
@@ -1037,6 +1372,7 @@ function UsersPage() {
               <tr>
                 <th>User</th>
                 <th>Role</th>
+                <th>Package</th>
                 <th>Status</th>
                 <th>Joined</th>
                 <th>Last login</th>
@@ -1057,6 +1393,7 @@ function UsersPage() {
                     )}
                   </td>
                   <td>{u.role}</td>
+                  <td style={{ fontSize: 13 }}>{u.billing_package?.name || u.billing_plan || "—"}</td>
                   <td>{u.is_active ? "Active" : "Inactive"}</td>
                   <td style={{ fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
                     {u.date_joined ? new Date(u.date_joined).toLocaleString() : "—"}
@@ -1188,6 +1525,29 @@ function UsersPage() {
                   Django staff
                 </label>
               )}
+              {currentUser?.is_superuser && (
+                <label style={{ fontSize: 13 }}>
+                  Billing package
+                  <select
+                    value={editDraft.billing_package === "" ? "" : String(editDraft.billing_package)}
+                    onChange={(e) =>
+                      setEditDraft({
+                        ...editDraft,
+                        billing_package: e.target.value ? Number(e.target.value) : "",
+                      })
+                    }
+                    style={{ display: "block", marginTop: 6, width: "100%", padding: "8px" }}
+                  >
+                    <option value="">— Select —</option>
+                    {packages.map((p) => (
+                      <option key={p.id} value={String(p.id)}>
+                        {p.name}
+                        {!p.is_active ? " (inactive)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <div className="row" style={{ gap: 8 }}>
                 <button type="button" className="btn-primary" onClick={saveEdit}>
                   Save changes
@@ -1236,12 +1596,7 @@ function FormsPage() {
     void refreshAuth();
   }, [refreshAuth]);
 
-  const atFreeFormLimit =
-    canDesign &&
-    user?.billing_plan === "free" &&
-    typeof user?.owned_forms_count === "number" &&
-    typeof user?.free_tier_max_forms === "number" &&
-    user.owned_forms_count >= user.free_tier_max_forms;
+  const atFormPackageLimit = Boolean(user?.owned_forms_at_package_limit);
 
   const createForm = async (e) => {
     e.preventDefault();
@@ -1280,17 +1635,18 @@ function FormsPage() {
       <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8, marginBottom: 16 }}>
         Browse <Link to="/templates">Templates</Link> for ready-made forms and themes. Forms you created, were invited to, or have submitted to appear here. Open <strong>Share</strong> to change visibility (owners only), copy the link, and send invites.
       </p>
-      {canDesign && atFreeFormLimit && (
+      {canDesign && atFormPackageLimit && (
         <p className="msg" style={{ marginBottom: 12 }}>
-          You&apos;ve reached the free limit ({user?.free_tier_max_forms} forms you own).{" "}
-          <Link to="/billing">Upgrade to Pro</Link> to create more, or delete forms you no longer need.
+          You&apos;ve reached your package limit
+          {user?.package_max_owned_forms != null ? ` (${user.package_max_owned_forms} forms you own)` : ""}.{" "}
+          <Link to="/billing">Change plan</Link> to raise the cap, or delete forms you no longer need.
         </p>
       )}
       {canDesign && (
         <form onSubmit={createForm} className="stack card" style={{ marginBottom: 20 }}>
           <input placeholder="Form title" value={title} onChange={(e) => setTitle(e.target.value)} />
           <textarea placeholder="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
-          <button className="btn-primary" disabled={atFreeFormLimit}>
+          <button className="btn-primary" disabled={atFormPackageLimit}>
             Create Form
           </button>
         </form>
@@ -1327,7 +1683,7 @@ function FormsPage() {
                     <button
                       className="btn-secondary btn-sm"
                       type="button"
-                      disabled={atFreeFormLimit}
+                      disabled={atFormPackageLimit}
                       onClick={() => duplicateForm(f.id)}
                     >
                       Duplicate
@@ -3041,6 +3397,11 @@ function AnalyticsPage() {
   const canEditForm = ["creator", "admin"].includes(userRole || "");
   const [data, setData] = useState(null);
   const [responses, setResponses] = useState([]);
+  const [llmEnabled, setLlmEnabled] = useState(false);
+  const [aiMsg, setAiMsg] = useState("");
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const [narrateBusyId, setNarrateBusyId] = useState(null);
+  const [analyticsTab, setAnalyticsTab] = useState("summary");
   const [err, setErr] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [afterDraft, setAfterDraft] = useState("");
@@ -3060,6 +3421,13 @@ function AnalyticsPage() {
     setSubmittedAfter("");
     setSubmittedBefore("");
   }, [formId]);
+
+  useEffect(() => {
+    api
+      .get("/api/ai/health")
+      .then(({ data }) => setLlmEnabled(Boolean(data.llm_enabled)))
+      .catch(() => setLlmEnabled(false));
+  }, []);
 
   useEffect(() => {
     setErr("");
@@ -3119,12 +3487,69 @@ function AnalyticsPage() {
     }
   };
 
+  const generateFormSummary = async () => {
+    setSummaryBusy(true);
+    setAiMsg("");
+    try {
+      const { data: body } = await api.post(`/api/forms/${formId}/ai_responses_summary`);
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              responses_ai_summary: body.responses_ai_summary || "",
+              responses_ai_summary_generated_at: body.responses_ai_summary_generated_at,
+            }
+          : prev
+      );
+    } catch (e) {
+      setAiMsg(formatApiError(e));
+    } finally {
+      setSummaryBusy(false);
+    }
+  };
+
+  const generateResponseNarration = async (rid) => {
+    setNarrateBusyId(rid);
+    setAiMsg("");
+    try {
+      const { data: row } = await api.post(`/api/forms/${formId}/responses/${rid}/ai_narration`);
+      setResponses((prev) => prev.map((r) => (r.id === row.id ? row : r)));
+    } catch (e) {
+      setAiMsg(formatApiError(e));
+    } finally {
+      setNarrateBusyId(null);
+    }
+  };
+
   if (err) return <Layout><p className="msg msg-error">{err}</p></Layout>;
   if (!data) return <Layout><p>Loading analytics...</p></Layout>;
 
   return (
     <Layout>
       <h2>Analytics</h2>
+      <div className="row" style={{ marginBottom: 16, gap: 8, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          className={analyticsTab === "summary" ? "btn-primary btn-sm" : "btn-secondary btn-sm"}
+          onClick={() => setAnalyticsTab("summary")}
+        >
+          Summary &amp; responses
+        </button>
+        <button
+          type="button"
+          className={analyticsTab === "visualize" ? "btn-primary btn-sm" : "btn-secondary btn-sm"}
+          onClick={() => setAnalyticsTab("visualize")}
+        >
+          Visualize &amp; compare
+        </button>
+      </div>
+
+      {analyticsTab === "visualize" && (
+        <AnalyticsVizExplore formId={formId} />
+      )}
+
+      {analyticsTab === "summary" && (
+      <>
       <div className="card stack" style={{ marginBottom: 16 }}>
         <p style={{ margin: 0, fontWeight: 500 }}>Filter responses</p>
         <div className="row" style={{ flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
@@ -3196,6 +3621,57 @@ function AnalyticsPage() {
         </div>
       </div>
 
+      {canEditForm && (
+        <div className="card stack" style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+            <h3 style={{ margin: 0, fontSize: 16 }}>AI summaries (Ollama)</h3>
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              disabled={summaryBusy || !llmEnabled || !data.total_responses}
+              onClick={() => void generateFormSummary()}
+            >
+              {summaryBusy ? "Generating…" : "Summarize all responses"}
+            </button>
+          </div>
+          {!llmEnabled && (
+            <p style={{ margin: 0, fontSize: 13, color: "#b45309" }}>
+              Server AI is off. Set <code>LLM_PROVIDER=ollama</code> and run Ollama to enable narrations and the form-wide summary.
+            </p>
+          )}
+          {aiMsg && <p className="msg msg-error" style={{ margin: 0 }}>{aiMsg}</p>}
+          {data.responses_ai_summary ? (
+            <div style={{ marginTop: 8 }}>
+              <p style={{ margin: "0 0 6px", fontSize: 12, color: "#6b7280" }}>
+                Last generated:{" "}
+                {data.responses_ai_summary_generated_at
+                  ? new Date(data.responses_ai_summary_generated_at).toLocaleString()
+                  : "—"}
+              </p>
+              <pre
+                style={{
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  fontFamily: "inherit",
+                  fontSize: 14,
+                  lineHeight: 1.5,
+                  padding: 12,
+                  background: "#f8fafc",
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                {data.responses_ai_summary}
+              </pre>
+            </div>
+          ) : (
+            <p style={{ margin: "8px 0 0", fontSize: 13, color: "#6b7280" }}>
+              No form-wide summary yet. Use the button above to generate one from all submitted responses (not only the filtered table).
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="stack">
         {data.questions.map((q) => (
           <div key={q.id} className="card">
@@ -3239,6 +3715,7 @@ function AnalyticsPage() {
               <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Response ID</th>
               <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Submitted</th>
               <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Answers</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb", minWidth: 220 }}>AI narration</th>
             </tr>
           </thead>
           <tbody>
@@ -3247,16 +3724,36 @@ function AnalyticsPage() {
                 <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{r.id}</td>
                 <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{new Date(r.submitted_at).toLocaleString()}</td>
                 <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{r.answers?.length || 0}</td>
+                <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6", verticalAlign: "top" }}>
+                  {canEditForm && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ marginBottom: 6 }}
+                      disabled={!llmEnabled || narrateBusyId === r.id}
+                      onClick={() => void generateResponseNarration(r.id)}
+                    >
+                      {narrateBusyId === r.id ? "Working…" : r.ai_narration ? "Regenerate" : "Summarize"}
+                    </button>
+                  )}
+                  {r.ai_narration ? (
+                    <p style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12, color: "#374151" }}>{r.ai_narration}</p>
+                  ) : (
+                    <span style={{ color: "#9ca3af", fontSize: 12 }}>—</span>
+                  )}
+                </td>
               </tr>
             ))}
             {responses.length === 0 && (
               <tr>
-                <td colSpan={3} style={{ padding: 12, color: "#9ca3af" }}>No responses yet.</td>
+                <td colSpan={4} style={{ padding: 12, color: "#9ca3af" }}>No responses yet.</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+      </>
+      )}
     </Layout>
   );
 }
@@ -3268,6 +3765,7 @@ function BillingPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [info, setInfo] = useState(null);
+  const [packages, setPackages] = useState([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -3281,6 +3779,18 @@ function BillingPage() {
         setInfo(data);
       } catch (e) {
         setMsg(formatApiError(e));
+      }
+    })();
+  }, [canManage]);
+
+  useEffect(() => {
+    if (!canManage) return;
+    (async () => {
+      try {
+        const { data } = await api.get("/api/billing/packages");
+        setPackages(normalizeListResponse(data));
+      } catch {
+        setPackages([]);
       }
     })();
   }, [canManage]);
@@ -3334,46 +3844,72 @@ function BillingPage() {
     );
   }
 
-  const max = info?.free_tier_max_forms ?? 5;
   const owned = info?.owned_forms_count ?? 0;
-  const plan = info?.billing_plan || "free";
+  const usage = info?.usage;
+  const formsCap = usage?.max_owned_forms;
+  const planPaid = info?.billing_package
+    ? !info.billing_package.is_free_tier
+    : Boolean(info?.billing_plan && info.billing_plan !== "free");
   const periodEnd = info?.billing_current_period_end
     ? new Date(info.billing_current_period_end).toLocaleString()
     : null;
+  const stripeSlug = info?.stripe_subscription_package_slug || "plus";
+  const stripePkgName =
+    packages.find((p) => p.slug === stripeSlug)?.name || stripeSlug;
 
   return (
     <Layout>
       <h2>Billing</h2>
       <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8 }}>
-        Pro removes the form limit and the &quot;Powered by FastForms&quot; line on public fill pages. Respondents never pay.
+        Package limits (owned forms, AI credits) come from your assigned billing package. Stripe checkout (when configured) assigns the{" "}
+        <strong>{stripePkgName}</strong> package (see <code>STRIPE_SUBSCRIPTION_PACKAGE_SLUG</code>). Superusers edit packages under <strong>Packages</strong> and assign users under <strong>Users</strong>. Respondents never pay.
       </p>
       {msg && <p className="msg">{msg}</p>}
       {!info && !msg && <p>Loading…</p>}
       {info && (
         <div className="card stack" style={{ maxWidth: 520, marginTop: 16 }}>
           <p>
-            <strong>Plan:</strong> {plan === "pro" ? "Pro" : "Free"}
+            <strong>Package:</strong> {info?.billing_package?.name || info?.billing_plan || "—"}
           </p>
-          {plan === "pro" && periodEnd && (
+          {planPaid && periodEnd && (
             <p style={{ fontSize: 14, color: "#6b7280" }}>
               Current period ends (UTC): {periodEnd}
             </p>
           )}
           <p style={{ fontSize: 14, color: "#6b7280" }}>
             Forms you own: {owned}
-            {plan !== "pro" && (
+            {formsCap != null ? (
               <>
                 {" "}
-                (free tier: up to {max})
+                (your package allows up to {formsCap})
               </>
+            ) : (
+              <> (no cap on owned forms for your package)</>
             )}
           </p>
-          {plan !== "pro" && (
+          {usage &&
+            (usage.ai_credits_limit != null ? (
+              <p style={{ fontSize: 14, color: "#6b7280" }}>
+                AI credits this period: {usage.ai_credits_used ?? 0} / {usage.ai_credits_limit}
+                {usage.ai_usage_period_days != null && (
+                  <> · Period length: {usage.ai_usage_period_days} day(s)</>
+                )}
+                {usage.ai_credits_period_ends_at && (
+                  <>
+                    {" "}
+                    · Next rollover (UTC): {new Date(usage.ai_credits_period_ends_at).toLocaleString()}
+                  </>
+                )}
+              </p>
+            ) : (
+              <p style={{ fontSize: 14, color: "#6b7280" }}>AI: unlimited for your package.</p>
+            ))}
+          {!planPaid && (
             <button type="button" className="btn-primary" disabled={busy || !info.stripe_checkout_available} onClick={() => void startCheckout()}>
-              Upgrade to Pro
+              Subscribe with Stripe ({stripePkgName})
             </button>
           )}
-          {!info.stripe_checkout_available && plan !== "pro" && (
+          {!info.stripe_checkout_available && !planPaid && (
             <p style={{ fontSize: 13, color: "#b45309" }}>
               Stripe is not configured on the server (missing secret key or price ID). Ask your operator to set STRIPE_SECRET_KEY and STRIPE_PRICE_PRO_MONTHLY.
             </p>
@@ -3388,6 +3924,248 @@ function BillingPage() {
           </button>
         </div>
       )}
+    </Layout>
+  );
+}
+
+// --- Integrations (API keys) ---
+
+const API_KEY_SCOPE_OPTIONS = [
+  { id: "forms:read", label: "Read forms", hint: "List and retrieve form definitions (GET /api/v1/forms)." },
+  { id: "forms:write", label: "Create forms", hint: "Create new forms (POST /api/v1/forms); creator/admin accounts only." },
+  { id: "responses:read", label: "Read responses", hint: "List responses for forms you own." },
+  { id: "responses:submit", label: "Submit responses", hint: "Submit answers to forms (your user is the respondent)." },
+];
+
+function IntegrationsPage() {
+  const apiBase = getApiBaseUrl();
+  const swaggerUrl = `${apiBase}/api/docs/swagger/`;
+  const redocUrl = `${apiBase}/api/docs/redoc/`;
+  const schemaUrl = `${apiBase}/api/schema/`;
+
+  const [keys, setKeys] = useState([]);
+  const [loadErr, setLoadErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [newKeySecret, setNewKeySecret] = useState(null);
+  const [createName, setCreateName] = useState("");
+  const [scopeWant, setScopeWant] = useState(() =>
+    Object.fromEntries(API_KEY_SCOPE_OPTIONS.map((o) => [o.id, false]))
+  );
+  const [copyMsg, setCopyMsg] = useState("");
+
+  const loadKeys = async () => {
+    setLoadErr("");
+    try {
+      const { data } = await api.get("/api/auth/api-keys");
+      const list = Array.isArray(data) ? data : data?.results || [];
+      setKeys(list);
+    } catch (e) {
+      setKeys([]);
+      setLoadErr(formatApiError(e));
+    }
+  };
+
+  useEffect(() => {
+    void loadKeys();
+  }, []);
+
+  const selectedScopes = API_KEY_SCOPE_OPTIONS.map((o) => o.id).filter((id) => scopeWant[id]);
+  const restrictScopes = selectedScopes.length > 0;
+
+  const createKey = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setMsg("");
+    setNewKeySecret(null);
+    try {
+      const body = { name: createName.trim() };
+      if (restrictScopes) body.scopes = selectedScopes;
+      const { data } = await api.post("/api/auth/api-keys", body);
+      if (data.key) setNewKeySecret(data.key);
+      setCreateName("");
+      setScopeWant(Object.fromEntries(API_KEY_SCOPE_OPTIONS.map((o) => [o.id, false])));
+      await loadKeys();
+      setMsg("Key created. Copy the secret below if shown — it will not appear again.");
+    } catch (err) {
+      setMsg(formatApiError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeKey = async (id, prefix) => {
+    if (!window.confirm(`Revoke API key ${prefix}…? Integrations using it will stop working immediately.`)) return;
+    setMsg("");
+    try {
+      await api.delete(`/api/auth/api-keys/${id}`);
+      await loadKeys();
+      setMsg("Key revoked.");
+    } catch (err) {
+      setMsg(formatApiError(err));
+    }
+  };
+
+  const copySecret = async () => {
+    if (!newKeySecret) return;
+    setCopyMsg("");
+    try {
+      await navigator.clipboard.writeText(newKeySecret);
+      setCopyMsg("Copied.");
+    } catch {
+      setCopyMsg("Copy failed — select and copy manually.");
+    }
+  };
+
+  return (
+    <Layout>
+      <h2>Integrations</h2>
+      <p style={{ fontSize: 14, color: "#6b7280", marginTop: -8 }}>
+        Use API keys for scripts and backends. Send <code style={{ fontSize: 13 }}>X-Api-Key: &lt;secret&gt;</code> or{" "}
+        <code style={{ fontSize: 13 }}>Authorization: Api-Key &lt;secret&gt;</code> to{" "}
+        <code style={{ fontSize: 13 }}>/api/v1/</code> endpoints. If your operator disabled docs, Swagger/ReDoc links below may return 404.
+      </p>
+
+      <div className="card stack" style={{ marginBottom: 16 }}>
+        <p style={{ margin: 0, fontWeight: 600 }}>Documentation</p>
+        <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+          <a className="btn-primary btn-sm" href={swaggerUrl} target="_blank" rel="noopener noreferrer">
+            Open Swagger UI
+          </a>
+          <a className="btn-secondary btn-sm" href={redocUrl} target="_blank" rel="noopener noreferrer">
+            Open ReDoc
+          </a>
+          <a className="btn-secondary btn-sm" href={schemaUrl} target="_blank" rel="noopener noreferrer">
+            OpenAPI schema
+          </a>
+        </div>
+        <p style={{ margin: 0, fontSize: 12, color: "#9ca3af" }}>
+          Base URL for links: <code>{apiBase}</code> (set <code>VITE_API_BASE_URL</code> when the API is not on localhost:8000).
+        </p>
+      </div>
+
+      {newKeySecret && (
+        <div
+          className="card stack"
+          style={{
+            marginBottom: 16,
+            border: "2px solid #6366f1",
+            background: "#eef2ff",
+          }}
+        >
+          <p style={{ margin: 0, fontWeight: 700 }}>Save this secret now</p>
+          <p style={{ margin: 0, fontSize: 13, color: "#4338ca" }}>
+            This is the only time the full key is shown. Store it in a secret manager; FastForms only keeps a hash.
+          </p>
+          <input readOnly value={newKeySecret} style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }} />
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="btn-primary btn-sm" onClick={() => void copySecret()}>
+              Copy to clipboard
+            </button>
+            <button type="button" className="btn-secondary btn-sm" onClick={() => { setNewKeySecret(null); setCopyMsg(""); }}>
+              Dismiss
+            </button>
+          </div>
+          {copyMsg && <p className="msg" style={{ margin: 0 }}>{copyMsg}</p>}
+        </div>
+      )}
+
+      <div className="card stack" style={{ marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Create API key</h3>
+        <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>
+          Leave every scope <strong>unchecked</strong> to grant <strong>all</strong> permissions (full access). Check one or more to <strong>restrict</strong> the key.
+        </p>
+        <form onSubmit={createKey} className="stack">
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+            Label (optional)
+            <input
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              placeholder="e.g. Production CRM"
+              maxLength={120}
+            />
+          </label>
+          <div className="stack" style={{ gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 500 }}>Scopes</span>
+            {API_KEY_SCOPE_OPTIONS.map((o) => (
+              <label
+                key={o.id}
+                style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, cursor: "pointer" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={scopeWant[o.id]}
+                  onChange={(e) => setScopeWant((prev) => ({ ...prev, [o.id]: e.target.checked }))}
+                  style={{ marginTop: 3 }}
+                />
+                <span>
+                  <strong>{o.label}</strong> <span style={{ color: "#6b7280" }}>({o.id})</span>
+                  <div style={{ fontSize: 12, color: "#9ca3af" }}>{o.hint}</div>
+                </span>
+              </label>
+            ))}
+          </div>
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? "Creating…" : "Create key"}
+          </button>
+        </form>
+      </div>
+
+      {loadErr && <p className="msg msg-error">{loadErr}</p>}
+      {msg && !loadErr && <p className="msg">{msg}</p>}
+
+      <h3 style={{ fontSize: 16, marginBottom: 8 }}>Your keys</h3>
+      <div className="card" style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: "#f8fafc" }}>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Prefix</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Label</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Scopes</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Created</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Last used</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }}>Status</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #e5e7eb" }} />
+            </tr>
+          </thead>
+          <tbody>
+            {keys.map((k) => (
+              <tr key={k.id}>
+                <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6", fontFamily: "ui-monospace, monospace" }}>
+                  {k.prefix}…
+                </td>
+                <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>{k.name || "—"}</td>
+                <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6", maxWidth: 220 }}>
+                  {(Array.isArray(k.scopes) ? k.scopes : []).join(", ") || "—"}
+                </td>
+                <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
+                  {k.created_at ? new Date(k.created_at).toLocaleString() : "—"}
+                </td>
+                <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
+                  {k.last_used_at ? new Date(k.last_used_at).toLocaleString() : "—"}
+                </td>
+                <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
+                  {k.is_active ? <span style={{ color: "#059669" }}>Active</span> : <span style={{ color: "#9ca3af" }}>Revoked</span>}
+                </td>
+                <td style={{ padding: 8, borderBottom: "1px solid #f3f4f6" }}>
+                  {k.is_active && (
+                    <button type="button" className="btn-danger btn-sm" onClick={() => void revokeKey(k.id, k.prefix)}>
+                      Revoke
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {keys.length === 0 && !loadErr && (
+              <tr>
+                <td colSpan={7} style={{ padding: 12, color: "#9ca3af" }}>
+                  No API keys yet. Create one above.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </Layout>
   );
 }
@@ -3412,7 +4190,9 @@ export default function App() {
         <Route path="/fill/:formId" element={<ProtectedRoute><FillFormPage /></ProtectedRoute>} />
         <Route path="/analytics/:formId" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
         <Route path="/admin/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
+        <Route path="/admin/packages" element={<SuperuserRoute><PackagesPage /></SuperuserRoute>} />
         <Route path="/billing" element={<ProtectedRoute><BillingPage /></ProtectedRoute>} />
+        <Route path="/integrations" element={<ProtectedRoute><IntegrationsPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>

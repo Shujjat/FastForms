@@ -8,7 +8,7 @@ from rest_framework.test import APITestCase
 
 from apps.llm import client as llm_client
 from apps.llm.suggest import parse_suggest_form_json
-from apps.users.models import User
+from apps.users.models import BillingPackage, User
 
 
 class LlmApiTests(APITestCase):
@@ -76,6 +76,29 @@ class LlmApiTests(APITestCase):
         self._login()
         res = self.client.post("/api/ai/suggest_form", {"prompt": "Hello"}, format="json")
         self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    @override_settings(LLM_PROVIDER="ollama")
+    @patch("apps.llm.views.chat_completion")
+    def test_suggest_form_400_when_ai_credits_exhausted(self, mock_chat):
+        mock_chat.return_value = json.dumps({"title": "T", "description": "", "questions": []})
+        pkg = BillingPackage.objects.create(
+            slug="ai_tiny_test",
+            name="AI Tiny Test",
+            sort_order=200,
+            is_active=True,
+            is_free_tier=False,
+            max_owned_forms=None,
+            ai_credits_per_period=1,
+            ai_usage_period_days=30,
+        )
+        self.user.billing_package = pkg
+        self.user.save(update_fields=["billing_package"])
+        self.user.ai_credits_used = 1
+        self.user.save(update_fields=["ai_credits_used"])
+        self._login()
+        res = self.client.post("/api/ai/suggest_form", {"prompt": "Hello"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", res.data)
 
     @override_settings(LLM_PROVIDER="ollama", OLLAMA_MODEL="missing-model:tag")
     @patch("apps.llm.client.requests.post")

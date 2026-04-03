@@ -4,12 +4,14 @@ import time
 
 import requests
 from django.conf import settings as django_settings
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from apps.forms.permissions import IsCreatorOrAdmin
+from apps.users.package_usage import assert_ai_credits_available, consume_ai_credits
 
 from .client import chat_completion, is_llm_configured, ollama_health_model_display
 from .suggest import build_suggest_form_messages, parse_suggest_form_json
@@ -61,6 +63,10 @@ class SuggestFormView(APIView):
                 },
                 status=503,
             )
+        try:
+            assert_ai_credits_available(user)
+        except ValidationError as e:
+            return Response(e.detail, status=400)
         logger.info(
             "AI suggest_form START user=%s pk=%s prompt_chars=%d configured_model=%r",
             uname,
@@ -139,4 +145,5 @@ class SuggestFormView(APIView):
                 len(title),
                 nq,
             )
+        consume_ai_credits(user)
         return Response(draft)

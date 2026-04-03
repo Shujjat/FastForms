@@ -1,6 +1,14 @@
 from rest_framework.permissions import BasePermission
 
 
+class IsDjangoSuperuser(BasePermission):
+    """Django superuser only (platform-level settings, billing package CRUD)."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and getattr(user, "is_superuser", False))
+
+
 class IsAdminUser(BasePermission):
     """
     Application admins (role=admin) or Django superusers.

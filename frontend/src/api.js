@@ -2,9 +2,22 @@ import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
+/** Backend origin (same as axios baseURL). Use for links to Swagger, ReDoc, and `/api/schema/`. */
+export function getApiBaseUrl() {
+  return API_BASE.replace(/\/$/, "");
+}
+
 export const api = axios.create({
   baseURL: API_BASE,
 });
+
+/** DRF list: either a JSON array or paginated `{ results: [...] }` (when pagination is enabled). */
+export function normalizeListResponse(data) {
+  if (data == null) return [];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.results)) return data.results;
+  return [];
+}
 
 /** Turn axios/DRF errors into a single string for UI messages. */
 export function formatApiError(err) {

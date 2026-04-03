@@ -446,3 +446,32 @@ class FastFormsApiTests(APITestCase):
         self.assertEqual(res.data["sent"], 2)
         self.assertEqual(len(mail.outbox), 2)
         self.assertIn("Invite Form", mail.outbox[0].subject)
+
+    def test_public_api_v1_list_forms_with_api_key(self):
+        self._login("creator1")
+        form = self.client.post("/api/forms", {"title": "API Form", "description": ""}, format="json").data
+        fid = form["id"]
+        key_res = self.client.post(
+            "/api/auth/api-keys",
+            {"name": "test", "scopes": ["forms:read"]},
+            format="json",
+        )
+        self.assertEqual(key_res.status_code, status.HTTP_201_CREATED)
+        secret = key_res.data["key"]
+        self.client.credentials()
+        v1 = self.client.get("/api/v1/forms", HTTP_X_API_KEY=secret)
+        self.assertEqual(v1.status_code, status.HTTP_200_OK)
+        self.assertTrue(any(r.get("id") == fid for r in (v1.data.get("results") or v1.data)))
+
+    def test_viz_matrix_owner_only(self):
+        self._login("creator1")
+        form = self.client.post("/api/forms", {"title": "Viz form", "description": ""}, format="json").data
+        fid = form["id"]
+        res = self.client.get(f"/api/forms/{fid}/viz_matrix")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("questions", res.data)
+        self.assertIn("responses", res.data)
+        self.assertEqual(res.data["responses"], [])
+        self._login("resp1")
+        denied = self.client.get(f"/api/forms/{fid}/viz_matrix")
+        self.assertEqual(denied.status_code, status.HTTP_404_NOT_FOUND)
